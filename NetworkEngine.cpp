@@ -164,8 +164,8 @@ void NetworkEngine::startSniff(const char *filter) {
  * Stops the PCAP sniff loop.
  */
 void NetworkEngine::stopSniff() {
-    pcap_breakloop(this->session);
     if (this->sniffThread != nullptr) {
+        pcap_breakloop(this->session);
         if (this->sniffThread->joinable()) {
             this->sniffThread->join();
         }
