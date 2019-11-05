@@ -18,7 +18,7 @@ const char *NetworkEngine::IP_FILTER = "ip";
 const char *NetworkEngine::ARP_FILTER = "arp";
 
 /*
- * Contructor for NetworkEngine. The network engine is a class that handles pcap packet sniffing as
+ * Constructor for NetworkEngine. The network engine is a class that handles pcap packet sniffing as
  * well as sending crafted TCP and UDP packets using raw sockets.
  */
 NetworkEngine::NetworkEngine() {

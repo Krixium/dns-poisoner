@@ -34,7 +34,7 @@ const unsigned char TcpStack::CWR_FLAG = 0x80;
  *
  *      const unsigned int &ackNum: The TCP ack sequence number.
  *
- *      const unsgined char &tcpFlags: The TCP flag bit pattern.
+ *      const unsigned char &tcpFlags: The TCP flag bit pattern.
  *
  *      const UCharVector: The TCP payload.
  */
