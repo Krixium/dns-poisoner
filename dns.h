@@ -43,9 +43,13 @@
 #define DNS_RCODE_BADTRUNC 22
 #define DNS_RCODE_BADCOOKIE 23
 
+#include <vector>
+
 #include <endian.h>
 #include <stdint.h>
-#include <string.h>
+
+using UCharVector = std::vector<unsigned char>;
+
 typedef struct {
     uint16_t id;
 #if __BYTE_ORDER == __BIG_ENDIAN
@@ -74,6 +78,21 @@ typedef struct {
     uint16_t nscount; /* Name Server (Autority Record) Count */
     uint16_t adcount; /* Additional Record Count */
 } dnshdr;
+
+typedef struct {
+    unsigned char *qname;
+    unsigned char qtype[2];
+    unsigned char qclass[2];
+} dnsquery;
+
+typedef struct {
+    unsigned char *name;
+    unsigned char atype[2];
+    unsigned char aclass[2];
+    unsigned char ttl[4];
+    unsigned char rdatalen[2];
+    unsigned char *rdata;
+} dnsanswer;
 
 /* DNS QTYPES */
 #define DNS_QTYPE_A 1
@@ -127,36 +146,4 @@ typedef struct {
 #define DNS_QCLASS_NONE 254
 #define DNS_QCLASS_ANY 255
 
-/*
-        Function to change url to dns format
-        For example: www.google.com would become:
-        3www6google3com0
-        size, can be used if you want to know the size of the returned pointer,
-        because strlen reads until nullbyte and therefore doesnt include  qtype and qclass.
-*/
-// unsigned char *dns_format(char *url, int *size, unsigned short int qtype,
-//                           unsigned short int qclass) {
-//     int i, c = 0, len = strlen(url);
-//     char *buf = (char *)malloc(len + 6);
-// 
-//     buf[len + 1] = 0;
-//     for (i = len; i >= 0; i--) {
-//         if (url[i] == '.') {
-//             buf[i + 1] = c;
-//             c = 0;
-//         } else {
-//             buf[i + 1] = url[i];
-//             c++;
-//         }
-//     }
-//     buf[0] = c;
-// 
-//     uint16_t *qt = buf + len + 2;
-//     *qt = qtype;
-//     uint16_t *qc = buf + len + 4;
-//     *qc = qclass;
-// 
-//     if (size)
-//         *size = len + 6;
-//     return buf;
-// }
+int forgeDns(const dnshdr *dnsHeader, const struct in_addr *fakeAddr, unsigned char *output);
