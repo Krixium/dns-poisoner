@@ -8,6 +8,8 @@
 
 #include <pcap/pcap.h>
 
+#include "arp.h"
+
 using UCharVector = std::vector<unsigned char>;
 
 class NetworkEngine {
@@ -19,7 +21,12 @@ private:
 
     int pcapPromiscuousMode;
     int pcapLoopDelay;
-    int sd;
+
+    int rawSocket;
+    int arpSocket;
+
+    int ifindex;
+    char mac[ETH_ALEN];
 
     pcap_t *session;
 
@@ -33,7 +40,7 @@ public:
     std::vector<std::function<void(const struct pcap_pkthdr *, const unsigned char *)>> LoopCallbacks;
 
 public:
-    NetworkEngine();
+    NetworkEngine(const char *interfaceName);
     ~NetworkEngine();
 
     int sendTcp(const std::string &saddr, const std::string &daddr, const short &sport,
@@ -42,11 +49,19 @@ public:
     int sendUdp(const std::string &saddr, const std::string &daddr, const short &sport,
                 const short &dport, const UCharVector &payload);
 
+    int sendArp(const struct arp_header &arpPkt);
+
     void startSniff(const char *filter);
 
     void stopSniff();
 
 private:
+    void getInterfaceInfo(const char* interfaceName);
+
+    void openRawSocket();
+
+    void openArpSocket();
+
     void runSniff(const char *filter);
 };
 

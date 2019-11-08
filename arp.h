@@ -1,19 +1,24 @@
 #ifndef ARP_H
 #define ARP_H
 
-#define ARP_REQUEST 1
-#define ARP_REPLY 2
+#include <linux/if.h>
+#include <linux/if_arp.h>
+#include <linux/if_packet.h>
+#include <net/ethernet.h>
 
-typedef struct arphdr {
-    u_int16_t htype; /* Hardware Type           */
-    u_int16_t ptype; /* Protocol Type           */
-    u_char hlen;     /* Hardware Address Length */
-    u_char plen;     /* Protocol Address Length */
-    u_int16_t oper;  /* Operation Code          */
-    u_char sha[6];   /* Sender hardware address */
-    u_char spa[4];   /* Sender IP address       */
-    u_char tha[6];   /* Target hardware address */
-    u_char tpa[4];   /* Target IP address       */
-} arphdr_t;
+struct __attribute__((packed)) arp_header {
+    unsigned short arp_hd;
+    unsigned short arp_pr;
+    unsigned char arp_hdl;
+    unsigned char arp_prl;
+    unsigned short arp_op;
+    unsigned char arp_sha[6];
+    unsigned char arp_spa[4];
+    unsigned char arp_dha[6];
+    unsigned char arp_dpa[4];
+};
+
+void forgeArp(const char *atkMac, const struct in_addr *srcIp, const char *dstMac,
+              const struct in_addr *dstIp, struct arp_header *arpPkt);
 
 #endif

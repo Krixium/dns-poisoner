@@ -2,6 +2,8 @@
 
 #include <cstring>
 #include <iostream>
+
+#include <sys/ioctl.h>
 #include <unistd.h>
 
 #include "TcpStack.h"
@@ -21,21 +23,23 @@ const char *NetworkEngine::ARP_FILTER = "arp";
  * Constructor for NetworkEngine. The network engine is a class that handles pcap packet sniffing as
  * well as sending crafted TCP and UDP packets using raw sockets.
  */
-NetworkEngine::NetworkEngine() {
-    this->pcapPromiscuousMode = 0;
-    this->pcapLoopDelay = 1;
-    this->sd = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
-
-    this->session = nullptr;
-    this->sniffThread = nullptr;
+NetworkEngine::NetworkEngine(const char *interfaceName)
+    : pcapPromiscuousMode(0), pcapLoopDelay(1), session(nullptr), sniffThread(nullptr) {
+    this->getInterfaceInfo(interfaceName);
+    this->openRawSocket();
+    this->openArpSocket();
 }
 
 /*
  * Deconstructor for NetworkEngine.
  */
 NetworkEngine::~NetworkEngine() {
-    if (this->sd != -1) {
-        close(this->sd);
+    if (this->rawSocket != -1) {
+        close(this->rawSocket);
+    }
+
+    if (this->arpSocket != -1) {
+        close(this->arpSocket);
     }
 
     this->stopSniff();
@@ -63,7 +67,7 @@ NetworkEngine::~NetworkEngine() {
 int NetworkEngine::sendTcp(const std::string &saddr, const std::string &daddr, const short &sport,
                            const short &dport, const unsigned char &tcpFlags,
                            const UCharVector &payload) {
-    if (this->sd == -1) {
+    if (this->rawSocket == -1) {
         return 0;
     }
 
@@ -95,7 +99,7 @@ int NetworkEngine::sendTcp(const std::string &saddr, const std::string &daddr, c
     sin.sin_port = tcpStack.tcp.source;
     sin.sin_addr.s_addr = tcpStack.ip.daddr;
 
-    return sendto(this->sd, packet.data(), packet.size(), NetworkEngine::SEND_FLAGS,
+    return sendto(this->rawSocket, packet.data(), packet.size(), NetworkEngine::SEND_FLAGS,
                   (struct sockaddr *)&sin, sizeof(sin));
 }
 
@@ -118,7 +122,7 @@ int NetworkEngine::sendTcp(const std::string &saddr, const std::string &daddr, c
  */
 int NetworkEngine::sendUdp(const std::string &saddr, const std::string &daddr, const short &sport,
                            const short &dport, const UCharVector &payload) {
-    if (this->sd == -1) {
+    if (this->rawSocket == -1) {
         return 0;
     }
 
@@ -145,8 +149,36 @@ int NetworkEngine::sendUdp(const std::string &saddr, const std::string &daddr, c
     sin.sin_port = udpStack.udp.source;
     sin.sin_addr.s_addr = udpStack.ip.daddr;
 
-    return sendto(this->sd, packet.data(), packet.size(), NetworkEngine::SEND_FLAGS,
+    return sendto(this->rawSocket, packet.data(), packet.size(), NetworkEngine::SEND_FLAGS,
                   (struct sockaddr *)&sin, sizeof(sin));
+}
+
+int NetworkEngine::sendArp(const struct arp_header &arpPkt) {
+    char buffer[42];
+    struct ethhdr *eth = (struct ethhdr *)buffer;
+
+    // fill sock addr
+    struct sockaddr_ll sockAddr;
+    sockAddr.sll_family = AF_PACKET;           // this is always AF_PACKET
+    sockAddr.sll_protocol = htons(ETH_P_ARP);  // ethernet
+    sockAddr.sll_ifindex = this->ifindex;      // interface index
+    sockAddr.sll_hatype = htons(ARPHRD_ETHER); // hardware address type
+    sockAddr.sll_pkttype = PACKET_HOST;        // packet type(host, broadcast, multicast)
+    sockAddr.sll_halen = ETH_ALEN;             // ethernet address length
+    sockAddr.sll_addr[6] = 0x00;               // always 0
+    sockAddr.sll_addr[7] = 0x00;               // always 0
+
+    // copy arp header into buffer
+    memcpy(buffer + sizeof(struct ethhdr), &arpPkt, sizeof(struct arp_header));
+
+    // set the ethernet header
+    memcpy(&eth->h_dest, arpPkt.arp_dha, ETH_ALEN);
+    memcpy(&eth->h_source, arpPkt.arp_sha, ETH_ALEN);
+    eth->h_proto = htons(ETH_P_ARP);
+
+    // send
+    return sendto(this->arpSocket, buffer, 42, 0, (struct sockaddr *)&sockAddr,
+                  sizeof(struct sockaddr_ll));
 }
 
 /*
@@ -173,6 +205,54 @@ void NetworkEngine::stopSniff() {
         this->sniffThread = nullptr;
     }
 }
+
+void NetworkEngine::getInterfaceInfo(const char *interfaceName) {
+    struct ifreq ifr;
+    int sd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ARP));
+
+    if (sd <= 0) {
+        close(sd);
+    }
+
+    if (strlen(interfaceName) > (IFNAMSIZ - 1)) {
+        close(sd);
+    }
+
+    strcpy(ifr.ifr_name, interfaceName);
+
+    // get interface index using name
+    if (ioctl(sd, SIOCGIFINDEX, &ifr) == -1) {
+        close(sd);
+    }
+
+    this->ifindex = ifr.ifr_ifindex;
+
+    // get MAC address of the interface
+    if (ioctl(sd, SIOCGIFHWADDR, &ifr) == -1) {
+        close(sd);
+    }
+
+    // copy mac address to output
+    memcpy(this->mac, ifr.ifr_hwaddr.sa_data, 6);
+
+    if (sd > 0) {
+        close(sd);
+    }
+}
+
+void NetworkEngine::openArpSocket() {
+    struct sockaddr_ll sll;
+
+    this->arpSocket = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ARP));
+
+    memset(&sll, 0, sizeof(struct sockaddr_ll));
+    sll.sll_family = AF_PACKET;
+    sll.sll_ifindex = this->ifindex;
+
+    bind(this->arpSocket, (struct sockaddr *)&sll, sizeof(struct sockaddr_ll));
+}
+
+void NetworkEngine::openRawSocket() { this->rawSocket = socket(AF_INET, SOCK_RAW, IPPROTO_RAW); }
 
 /*
  * The main entry point of the sniffing thread. Handles initialization of the pcap_loop.
