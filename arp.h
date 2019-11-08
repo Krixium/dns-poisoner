@@ -18,7 +18,7 @@ struct __attribute__((packed)) arp_header {
     unsigned char arp_dpa[4];
 };
 
-void forgeArp(const char *atkMac, const struct in_addr *srcIp, const char *dstMac,
+void forgeArp(const unsigned char *atkMac, const struct in_addr *srcIp, const unsigned char *dstMac,
               const struct in_addr *dstIp, struct arp_header *arpPkt);
 
 #endif
