@@ -17,8 +17,8 @@ void arpCallback(const struct pcap_pkthdr *header, const unsigned char *packet);
 // main program we need: interface name, ip of gateway, ip of victim
 // dns poison we need: domain to poison, what to poison too
 int main(int argc, const char *argv[]) {
-    const char *interfaceName = "wlp59s0"; // get this from config file
-    std::unordered_map<std::string, std::string> domainsToPoison;
+    const char *interfaceName = "wlp59s0";                        // get this from config file
+    std::unordered_map<std::string, std::string> domainsToPoison; // get this from config file
 
     unsigned char attackerMac[ETH_ALEN] = {0x01, 0x02, 0x03,
                                            0x04, 0x05, 0x06}; // get this from config file
