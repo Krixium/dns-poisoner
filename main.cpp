@@ -18,8 +18,6 @@ void dnsCallback(const struct pcap_pkthdr *header, const unsigned char *packet);
 int main(int argc, const char *argv[]) {
     // get this from the config file later
     const char *interfaceName = "wlp59s0";
-    int ifindex;
-    int arpSocket;
 
     unsigned char attackerMac[ETH_ALEN] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06};
     unsigned char victimMac[ETH_ALEN];
