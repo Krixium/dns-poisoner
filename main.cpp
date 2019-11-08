@@ -20,13 +20,12 @@ int main(int argc, const char *argv[]) {
     const char *interfaceName = "wlp59s0";                        // get this from config file
     std::unordered_map<std::string, std::string> domainsToPoison; // get this from config file
 
-    unsigned char attackerMac[ETH_ALEN] = {0x01, 0x02, 0x03,
-                                           0x04, 0x05, 0x06}; // get this from config file
-    unsigned char victimMac[ETH_ALEN];                        // get this from arp request
-    unsigned char gatewayMac[ETH_ALEN];                       // get this from arp request
+    unsigned char attackerMac[ETH_ALEN]; // get this from config file
+    unsigned char victimMac[ETH_ALEN];   // get this from arp request
+    unsigned char gatewayMac[ETH_ALEN];  // get this from arp request
+    struct in_addr victimIp;             // get this from config file
+    struct in_addr gatewayIp;            // get this from config file
 
-    struct in_addr victimIp;
-    struct in_addr gatewayIp;
     struct arp_header victimArp;
     struct arp_header gatewayArp;
 
