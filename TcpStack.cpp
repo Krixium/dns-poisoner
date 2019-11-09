@@ -74,7 +74,17 @@ TcpStack::TcpStack(const struct in_addr &saddr, const struct in_addr &daddr, con
     this->tcp.urg_ptr = 0;
 
     // calculate checksum
-    this->calcChecksum();
+    struct TcpPseudoHeader pseudoHeader;
+
+    pseudoHeader.srcAddr = this->ip.saddr;
+    pseudoHeader.dstAddr = this->ip.daddr;
+    pseudoHeader.placeholder = 0;
+    pseudoHeader.protocol = IPPROTO_TCP;
+    pseudoHeader.tcpLen = htons(this->tcp.doff * 4);
+    memcpy((char *)&pseudoHeader.tcp, (char *)&this->tcp, this->tcp.doff * 4);
+
+    this->tcp.check = in_cksum((unsigned short *)&pseudoHeader, sizeof(struct TcpPseudoHeader));
+
 
     // fill total length in ip header
     this->ip.tot_len = htons(this->ip.ihl * 4 + this->tcp.doff * 4 + payload.size());
@@ -106,18 +116,3 @@ UCharVector TcpStack::getPacket() {
     return packet;
 }
 
-/*
- * Calculates and fills the checksum in the TCP header.
- */
-void TcpStack::calcChecksum() {
-    struct TcpPseudoHeader pseudoHeader;
-
-    pseudoHeader.srcAddr = this->ip.saddr;
-    pseudoHeader.dstAddr = this->ip.daddr;
-    pseudoHeader.placeholder = 0;
-    pseudoHeader.protocol = IPPROTO_TCP;
-    pseudoHeader.tcpLen = htons(this->tcp.doff * 4);
-    memcpy((char *)&pseudoHeader.tcp, (char *)&this->tcp, this->tcp.doff * 4);
-
-    this->tcp.check = in_cksum((unsigned short *)&pseudoHeader, sizeof(struct TcpPseudoHeader));
-}

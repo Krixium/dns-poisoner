@@ -45,7 +45,17 @@ UdpStack::UdpStack(const struct in_addr &saddr, const struct in_addr &daddr, con
     this->udp.len = htons(UdpStack::UDP_HDR_LEN + payload.size());
 
     // calculate checksum
-    this->calcChecksum();
+    struct UdpPseudoHeader pseudo_header;
+
+    pseudo_header.srcAddr = this->ip.saddr;
+    pseudo_header.dstAddr = this->ip.daddr;
+    pseudo_header.placeholder = 0;
+    pseudo_header.protocol = IPPROTO_UDP;
+    pseudo_header.udpLen = htons(this->udp.len);
+    memcpy((char *)&pseudo_header.udp, (char *)&this->udp, ntohs(this->udp.len));
+
+    this->udp.check = in_cksum((unsigned short *)&pseudo_header, sizeof(struct UdpPseudoHeader));
+
 
     // fill the total length in ip header
     short totalLen = this->ip.ihl * 4 + UdpStack::UDP_HDR_LEN + payload.size();
@@ -78,18 +88,3 @@ UCharVector UdpStack::getPacket() {
     return packet;
 }
 
-/*
- * Calculates and fills the checksum in the UDP header.
- */
-void UdpStack::calcChecksum() {
-    struct UdpPseudoHeader pseudo_header;
-
-    pseudo_header.srcAddr = this->ip.saddr;
-    pseudo_header.dstAddr = this->ip.daddr;
-    pseudo_header.placeholder = 0;
-    pseudo_header.protocol = IPPROTO_UDP;
-    pseudo_header.udpLen = htons(this->udp.len);
-    memcpy((char *)&pseudo_header.udp, (char *)&this->udp, ntohs(this->udp.len));
-
-    this->udp.check = in_cksum((unsigned short *)&pseudo_header, sizeof(struct UdpPseudoHeader));
-}
