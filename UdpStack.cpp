@@ -62,11 +62,7 @@ UdpStack::UdpStack(const struct in_addr &saddr, const struct in_addr &daddr, con
     this->ip.tot_len = htons(totalLen);
 
     // copy the payload
-    this->payload.resize(data.size());
-    // for (int i = 0; i < data.size(); i++) {
-    //     this->payload.push_back(payload[i]);
-    // }
-    memcpy((char *)this->payload.size(), (char *)data.size(), data.size());
+    this->payload = data;
 }
 
 /*
