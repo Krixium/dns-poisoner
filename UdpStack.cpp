@@ -25,7 +25,7 @@ const unsigned short UdpStack::UDP_HDR_LEN = 8;
  *      const UCharVector: The UDP payload.
  */
 UdpStack::UdpStack(const struct in_addr &saddr, const struct in_addr &daddr, const short &sport,
-                   const short &dport, const UCharVector &payload) {
+                   const short &dport, const UCharVector &data) {
     // fill the ip header
     this->ip.ihl = 5;
     this->ip.version = 4;
@@ -42,7 +42,7 @@ UdpStack::UdpStack(const struct in_addr &saddr, const struct in_addr &daddr, con
     // fill the udp header
     this->udp.source = htons(sport);
     this->udp.dest = htons(dport);
-    this->udp.len = htons(UdpStack::UDP_HDR_LEN + payload.size());
+    this->udp.len = htons(UdpStack::UDP_HDR_LEN + data.size());
 
     // calculate checksum
     struct UdpPseudoHeader pseudo_header;
@@ -58,14 +58,15 @@ UdpStack::UdpStack(const struct in_addr &saddr, const struct in_addr &daddr, con
 
 
     // fill the total length in ip header
-    short totalLen = this->ip.ihl * 4 + UdpStack::UDP_HDR_LEN + payload.size();
+    short totalLen = this->ip.ihl * 4 + UdpStack::UDP_HDR_LEN + data.size();
     this->ip.tot_len = htons(totalLen);
 
     // copy the payload
-    this->payload.resize(payload.size());
-    for (int i = 0; i < payload.size(); i++) {
-        this->payload.push_back(payload[i]);
-    }
+    this->payload.resize(data.size());
+    // for (int i = 0; i < data.size(); i++) {
+    //     this->payload.push_back(payload[i]);
+    // }
+    memcpy((char *)this->payload.size(), (char *)data.size(), data.size());
 }
 
 /*
