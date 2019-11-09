@@ -138,7 +138,7 @@ int main(int argc, const char *argv[]) {
         originalSrc.s_addr = ip->saddr;
         originalDst.s_addr = ip->daddr;
 
-        std::cout << "craft a repsonse with size: " << buffer.size() << std::endl;
+        std::cout << "craft a response with size: " << buffer.size() << std::endl;
 
         // reply
         ipEngine.sendUdp(originalDst, originalSrc, ntohs(udp->dest), ntohs(udp->source), buffer);
