@@ -30,3 +30,16 @@ void forgeArp(const unsigned char *atkMac, const struct in_addr *srcIp, const un
     memcpy(arpPkt->arp_dha, dstMac, ETH_ALEN);
     memcpy(arpPkt->arp_dpa, &dstIp->s_addr, 4);
 }
+
+void craftArpRequest(const struct in_addr *query, const struct in_addr *ip,
+                     const unsigned char *mac, struct arp_header *arpPkt) {
+    arpPkt->arp_hd = htons(ARPHRD_ETHER);
+    arpPkt->arp_pr = htons(ETH_P_IP);
+    arpPkt->arp_hdl = ETH_ALEN;
+    arpPkt->arp_prl = 4;
+    arpPkt->arp_op = htons(ARPOP_REQUEST);
+    memcpy(arpPkt->arp_sha, mac, ETH_ALEN);
+    memcpy(arpPkt->arp_spa, &ip->s_addr, 4);
+    memset(arpPkt->arp_dha, 0xFF, ETH_ALEN);
+    memcpy(arpPkt->arp_dpa, &query->s_addr, 4);
+}

