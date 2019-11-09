@@ -9,7 +9,6 @@
 #include "NetworkEngine.h"
 #include "UdpStack.h"
 
-#include "checksum.h"
 #include "dns.h"
 
 // get the interface name, ip of gateway and ip of victim
@@ -21,10 +20,10 @@ int main(int argc, const char *argv[]) {
 
     unsigned char attackerMac[ETH_ALEN] = {0xe4, 0xb9, 0x7a,
                                            0xee, 0x8d, 0xa5}; // get this from config file
-    unsigned char victimMac[ETH_ALEN];                        // get this from arp request
-    unsigned char gatewayMac[ETH_ALEN];                       // get this from arp request
     struct in_addr victimIp;                                  // get this from config file
     struct in_addr gatewayIp;                                 // get this from config file
+    unsigned char victimMac[ETH_ALEN];                        // get this from arp request
+    unsigned char gatewayMac[ETH_ALEN];                       // get this from arp request
 
     struct arp_header victimArp;
     struct arp_header gatewayArp;
