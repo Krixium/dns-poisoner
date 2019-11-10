@@ -10,6 +10,10 @@
 #include "UdpStack.h"
 
 #include "dns.h"
+#include "Config.h"
+
+#include <fstream>
+#include <sstream>
 
 void arpCallback(const struct pcap_pkthdr *header, const unsigned char *packet);
 
@@ -17,10 +21,16 @@ void arpCallback(const struct pcap_pkthdr *header, const unsigned char *packet);
 // main program we need: interface name, ip of gateway, ip of victim
 // dns poison we need: domain to poison, what to poison too
 int main(int argc, const char *argv[]) {
-    const char *interfaceName = "wlp59s0";                        // get this from config file
+    // Read strings from config file
+    std::unordered_map<std::string, std::string> properties = getConfig("poisoner.conf");
+
+    const char *interfaceName = properties["interfaceName"].c_str(); // get this from config file
     std::unordered_map<std::string, std::string> domainsToPoison; // get this from config file
 
     unsigned char attackerMac[ETH_ALEN]; // get this from config file
+    memcpy(attackerMac, properties["attackerMac"].c_str(), ETH_ALEN);
+    attackerMac[ETH_ALEN - 1] = 0; // Needs to be manually null-terminated
+
     unsigned char victimMac[ETH_ALEN];   // get this from arp request
     unsigned char gatewayMac[ETH_ALEN];  // get this from arp request
     struct in_addr victimIp;             // get this from config file
