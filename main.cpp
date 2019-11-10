@@ -36,7 +36,7 @@ inline bool isSameQuestion(const unsigned char *a, const unsigned char *b) {
 int main(int argc, const char *argv[]) {
     // Read strings from config file
     std::unordered_map<std::string, std::string> properties = getConfig("poisoner.conf");
-    std::unordered_map<std::string, std::string> domainsToPoison;
+    std::unordered_map<std::string, std::string> domainsToPoison = getConfig("spoofed_domains.conf");
 
     // convert all the values from the config file to the correct format
     unsigned char attackerMac[ETH_ALEN];

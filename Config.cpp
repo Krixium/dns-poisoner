@@ -3,10 +3,12 @@
 #include <fstream>
 #include <sstream>
 
-std::unordered_map<std::string, std::string> getConfig(const std::string& config_filename) {
+using std::unordered_map<std::string, std::string> = Properties
+
+Properties getConfig(const std::string& config_filename) {
     std::ifstream file(config_filename);
     std::string line;
-    std::unordered_map<std::string, std::string> properties;
+    Properties properties;
 
     if (file.is_open()) {
         while (std::getline(file, line)) {
@@ -24,4 +26,9 @@ std::unordered_map<std::string, std::string> getConfig(const std::string& config
         }
     }
     return properties;
+}
+
+Properties  getDomainNameIpPairs(const std::string& dns_filename) {
+	Properties props;
+
 }

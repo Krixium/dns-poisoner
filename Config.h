@@ -4,5 +4,7 @@
 #include <unordered_map>
 
 std::unordered_map<std::string, std::string> getConfig(const std::string& config_filename);
+std::unordered_map<std::string, std::string> getDomainNameIpPairs(const std::string& config_filename);
+
 
 #endif
