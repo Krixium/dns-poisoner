@@ -13,26 +13,6 @@
 #include <fstream>
 #include <sstream>
 
-inline bool isSameMac(const unsigned char *a, const unsigned char *b) {
-    for (int i = 0; i < ETH_ALEN; i++) {
-        if (a[i] != b[i]) {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-inline bool isSameQuestion(const unsigned char *a, const unsigned char *b) {
-    for (int i = 0; a[i]; i++) {
-        if (a[i] != b[i]) {
-            return false;
-        }
-    }
-
-    return true;
-}
-
 int main(int argc, const char *argv[]) {
     // Read strings from config file
     std::unordered_map<std::string, std::string> properties = getConfig("poisoner.conf");

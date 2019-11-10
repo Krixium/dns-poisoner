@@ -26,6 +26,26 @@ void dnsSpoof(struct DnsSniffArgs *args);
 void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
                   const unsigned char *packet);
 
+inline bool isSameMac(const unsigned char *a, const unsigned char *b) {
+    for (int i = 0; i < ETH_ALEN; i++) {
+        if (a[i] != b[i]) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+inline bool isSameQuestion(const unsigned char *a, const unsigned char *b) {
+    for (int i = 0; a[i]; i++) {
+        if (a[i] != b[i]) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 inline void fillIpUdpHeader(unsigned char *buffer, const unsigned int src,
                             const unsigned int dst, const unsigned short sport,
                             const unsigned short dport, const int payloadSize) {
