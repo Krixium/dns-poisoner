@@ -227,10 +227,6 @@ void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
     udp = (udphdr *)(packet + 14 + 20);
     dns = (dnshdr *)(packet + 14 + 20 + 8);
 
-    if (ip->saddr != params->victimIp->s_addr && ip->daddr != params->victimIp->s_addr) {
-        return;
-    }
-
     unsigned char *query = (unsigned char *)(packet + 14 + 20 + 8 + 12);
     struct sockaddr_in sin;
     sin.sin_family = AF_INET;
