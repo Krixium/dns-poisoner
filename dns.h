@@ -57,6 +57,17 @@ typedef struct {
     uint16_t adcount; /* Additional Record Count */
 } dnshdr;
 
+/*
+ * Forges a DNS requests. Takes the given DNS request header and replies to that DNS query with any
+ * given IPv4 address.
+ *
+ * Params:
+ *      const dnshdr *dnsHeader: The incoming DNS request header.
+ *
+ *      const struct in_addr *fakeAddr: The address resolve the DNS query too.
+ *
+ *      unsigned char *output: The output buffer.
+ */
 inline int forgeDns(const dnshdr *dnsHeader, const struct in_addr *fakeAddr,
                     unsigned char *output) {
     int size;
@@ -72,7 +83,8 @@ inline int forgeDns(const dnshdr *dnsHeader, const struct in_addr *fakeAddr,
     output[3] = 0x80;
 
     // first get the total size of the query, name + class + type
-    for (size = 0; query[size] != 0; size++);
+    for (size = 0; query[size] != 0; size++)
+        ;
     // set the correct total size of the query
     // 2 for type, 2 for class, 1 for null byte
     size += 2 + 2 + 1;

@@ -98,7 +98,7 @@ int NetworkEngine::sendTcp(const struct in_addr &saddr, const struct in_addr &da
  * Params:
  *      const struct in_addr &saddr: The source address structure.
  *
- *      const std::string &daddr: The destination address structure.
+ *      const struct in_addr &daddr: The destination address structure.
  *
  *      const short &sport: The source port.
  *
@@ -132,6 +132,15 @@ int NetworkEngine::sendUdp(const struct in_addr &saddr, const struct in_addr &da
                   (struct sockaddr *)&sin, sizeof(sin));
 }
 
+/*
+ * Sends the given ARP packet.
+ *
+ * Params:
+ *      const struct arp_header *arpPkt: The ARP packet to send.
+ *
+ * Returns:
+ *      The number of bytes written to the socket.
+ */
 int NetworkEngine::sendArp(const struct arp_header &arpPkt) {
     char buffer[42];
     struct ethhdr *eth = (struct ethhdr *)buffer;
@@ -165,7 +174,6 @@ int NetworkEngine::sendArp(const struct arp_header &arpPkt) {
  *
  * Params:
  *      const char *filter: The filter string.
- *
  */
 void NetworkEngine::startSniff(const char *filter) {
     this->sniffThread = new std::thread(&NetworkEngine::runSniff, this, filter);
@@ -185,10 +193,29 @@ void NetworkEngine::stopSniff() {
     }
 }
 
+/*
+ * Gets the MAC address of the interface that the NetworkEngine is using.
+ *
+ * Returns:
+ *      A pointer to the first byte of the MAC address of the interface.
+ *      The MAC address is stored as a 6 byte unsigned char array.
+ */
 const unsigned char *NetworkEngine::getMac() { return this->mac; }
 
+/*
+ * Gets the IP address of the interface that the NetworkEngine is using.
+ *
+ * Returns:
+ *      A pointer to an in_addr struct that contains the ip address of the interface.
+ */
 const struct in_addr *NetworkEngine::getIp() { return &(this->ip); }
 
+/*
+ * Grabs the interface index number, MAC address, and IP address and saves it.
+ *
+ * Params:
+ *      const char *interfaceName: The name of the interface to query.
+ */
 void NetworkEngine::getInterfaceInfo(const char *interfaceName) {
     struct ifreq ifr;
     int sd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ARP));
@@ -239,6 +266,9 @@ void NetworkEngine::getInterfaceInfo(const char *interfaceName) {
     }
 }
 
+/*
+ * Opens a raw socket for ARP reads and writes.
+ */
 void NetworkEngine::openArpSocket() {
     struct sockaddr_ll sll;
 
@@ -251,6 +281,9 @@ void NetworkEngine::openArpSocket() {
     bind(this->arpSocket, (struct sockaddr *)&sll, sizeof(struct sockaddr_ll));
 }
 
+/*
+ * Opens a raw socket.
+ */
 void NetworkEngine::openRawSocket() { this->rawSocket = socket(AF_INET, SOCK_RAW, IPPROTO_RAW); }
 
 /*
