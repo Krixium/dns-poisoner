@@ -25,7 +25,7 @@ const unsigned short UdpStack::UDP_HDR_LEN = 8;
  *      const UCharVector: The UDP payload.
  */
 UdpStack::UdpStack(const struct in_addr &saddr, const struct in_addr &daddr, const short &sport,
-                   const short &dport, const UCharVector &payload) {
+                   const short &dport, const UCharVector &data) {
     // fill the ip header
     this->ip.ihl = 5;
     this->ip.version = 4;
@@ -42,20 +42,27 @@ UdpStack::UdpStack(const struct in_addr &saddr, const struct in_addr &daddr, con
     // fill the udp header
     this->udp.source = htons(sport);
     this->udp.dest = htons(dport);
-    this->udp.len = htons(UdpStack::UDP_HDR_LEN + payload.size());
+    this->udp.len = htons(UdpStack::UDP_HDR_LEN + data.size());
 
     // calculate checksum
-    this->calcChecksum();
+    struct UdpPseudoHeader pseudo_header;
+
+    pseudo_header.srcAddr = this->ip.saddr;
+    pseudo_header.dstAddr = this->ip.daddr;
+    pseudo_header.placeholder = 0;
+    pseudo_header.protocol = IPPROTO_UDP;
+    pseudo_header.udpLen = htons(this->udp.len);
+    memcpy((char *)&pseudo_header.udp, (char *)&this->udp, ntohs(this->udp.len));
+
+    this->udp.check = in_cksum((unsigned short *)&pseudo_header, sizeof(struct UdpPseudoHeader));
+
 
     // fill the total length in ip header
-    short totalLen = this->ip.ihl * 4 + UdpStack::UDP_HDR_LEN + payload.size();
+    short totalLen = this->ip.ihl * 4 + UdpStack::UDP_HDR_LEN + data.size();
     this->ip.tot_len = htons(totalLen);
 
     // copy the payload
-    this->payload.resize(payload.size());
-    for (int i = 0; i < payload.size(); i++) {
-        this->payload.push_back(payload[i]);
-    }
+    this->payload = data;
 }
 
 /*
@@ -78,18 +85,3 @@ UCharVector UdpStack::getPacket() {
     return packet;
 }
 
-/*
- * Calculates and fills the checksum in the UDP header.
- */
-void UdpStack::calcChecksum() {
-    struct UdpPseudoHeader pseudo_header;
-
-    pseudo_header.srcAddr = this->ip.saddr;
-    pseudo_header.dstAddr = this->ip.daddr;
-    pseudo_header.placeholder = 0;
-    pseudo_header.protocol = IPPROTO_UDP;
-    pseudo_header.udpLen = htons(this->udp.len);
-    memcpy((char *)&pseudo_header.udp, (char *)&this->udp, ntohs(this->udp.len));
-
-    this->udp.check = in_cksum((unsigned short *)&pseudo_header, sizeof(struct UdpPseudoHeader));
-}

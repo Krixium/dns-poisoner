@@ -30,10 +30,6 @@ public:
              const short &dport, const UCharVector &payload);
 
     UCharVector getPacket();
-
-private:
-    void calcChecksum();
 };
-
 
 #endif

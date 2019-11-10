@@ -31,27 +31,28 @@ private:
     int arpSocket;
 
     int ifindex;
-    char mac[ETH_ALEN];
+    unsigned char mac[ETH_ALEN];
+    struct in_addr ip;
 
     pcap_t *session;
 
     std::thread *sniffThread;
 
 public:
-
     static const char *IP_FILTER;
     static const char *ARP_FILTER;
 
-    std::vector<std::function<void(const struct pcap_pkthdr *, const unsigned char *)>> LoopCallbacks;
+    std::vector<std::function<void(const struct pcap_pkthdr *, const unsigned char *)>>
+        LoopCallbacks;
 
 public:
     NetworkEngine(const char *interfaceName);
     ~NetworkEngine();
 
-    int sendTcp(const std::string &saddr, const std::string &daddr, const short &sport,
+    int sendTcp(const struct in_addr &saddr, const struct in_addr &daddr, const short &sport,
                 const short &dport, const unsigned char &tcpFlags, const UCharVector &payload);
 
-    int sendUdp(const std::string &saddr, const std::string &daddr, const short &sport,
+    int sendUdp(const struct in_addr &saddr, const struct in_addr &daddr, const short &sport,
                 const short &dport, const UCharVector &payload);
 
     int sendArp(const struct arp_header &arpPkt);
@@ -60,8 +61,11 @@ public:
 
     void stopSniff();
 
+    const unsigned char *getMac();
+    const struct in_addr *getIp();
+
 private:
-    void getInterfaceInfo(const char* interfaceName);
+    void getInterfaceInfo(const char *interfaceName);
 
     void openRawSocket();
 

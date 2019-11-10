@@ -21,4 +21,7 @@ struct __attribute__((packed)) arp_header {
 void forgeArp(const unsigned char *atkMac, const struct in_addr *srcIp, const unsigned char *dstMac,
               const struct in_addr *dstIp, struct arp_header *arpPkt);
 
+void craftArpRequest(const struct in_addr *query, const struct in_addr *ip,
+                     const unsigned char *mac, struct arp_header *arpPkt);
+
 #endif

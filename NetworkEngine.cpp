@@ -49,9 +49,9 @@ NetworkEngine::~NetworkEngine() {
  * Sends a TCP packet with the given parameters.
  *
  * Params:
- *      const std::string &saddr: The dotted decimal string of the source address.
+ *      const struct in_addr &saddr: The source address structure.
  *
- *      const std::string &daddr: The dotted decimal string of the destination address.
+ *      const std::string &daddr: The destination address structure.
  *
  *      const short &sport: The source port.
  *
@@ -64,31 +64,20 @@ NetworkEngine::~NetworkEngine() {
  * Returns:
  *      The number of bytes sent.
  */
-int NetworkEngine::sendTcp(const std::string &saddr, const std::string &daddr, const short &sport,
-                           const short &dport, const unsigned char &tcpFlags,
+int NetworkEngine::sendTcp(const struct in_addr &saddr, const struct in_addr &daddr,
+                           const short &sport, const short &dport, const unsigned char &tcpFlags,
                            const UCharVector &payload) {
     if (this->rawSocket == -1) {
         return 0;
     }
 
     struct sockaddr_in sin;
-    struct sockaddr_in sinSrc;
-    struct sockaddr_in sinDst;
-
-    if (inet_pton(AF_INET, saddr.c_str(), &sinSrc.sin_addr) != 1) {
-        return 0;
-    }
-
-    if (inet_pton(AF_INET, daddr.c_str(), &sinDst.sin_addr) != 1) {
-        return 0;
-    }
 
     srand(time(NULL));
     unsigned int seq_num = rand() % 0xFFFFFFFF;
     unsigned int ack_num = rand() % 0xFFFFFFFF;
 
-    TcpStack tcpStack(sinSrc.sin_addr, sinDst.sin_addr, sport, dport, seq_num, ack_num, tcpFlags,
-                      payload);
+    TcpStack tcpStack(saddr, daddr, sport, dport, seq_num, ack_num, tcpFlags, payload);
     UCharVector packet = tcpStack.getPacket();
 
     if (packet.size() > NetworkEngine::MTU) {
@@ -107,9 +96,9 @@ int NetworkEngine::sendTcp(const std::string &saddr, const std::string &daddr, c
  * Sends a UDP packet with the given parameters.
  *
  * Params:
- *      const std::string &saddr: The dotted decimal string of the source address.
+ *      const struct in_addr &saddr: The source address structure.
  *
- *      const std::string &daddr: The dotted decimal string of the destination address.
+ *      const std::string &daddr: The destination address structure.
  *
  *      const short &sport: The source port.
  *
@@ -120,25 +109,15 @@ int NetworkEngine::sendTcp(const std::string &saddr, const std::string &daddr, c
  * Returns:
  *      The number of bytes sent.
  */
-int NetworkEngine::sendUdp(const std::string &saddr, const std::string &daddr, const short &sport,
-                           const short &dport, const UCharVector &payload) {
+int NetworkEngine::sendUdp(const struct in_addr &saddr, const struct in_addr &daddr,
+                           const short &sport, const short &dport, const UCharVector &payload) {
     if (this->rawSocket == -1) {
         return 0;
     }
 
     struct sockaddr_in sin;
-    struct sockaddr_in sinSrc;
-    struct sockaddr_in sinDst;
 
-    if (inet_pton(AF_INET, saddr.c_str(), &sinSrc.sin_addr) != 1) {
-        return 0;
-    }
-
-    if (inet_pton(AF_INET, daddr.c_str(), &sinDst.sin_addr) != 1) {
-        return 0;
-    }
-
-    UdpStack udpStack(sinSrc.sin_addr, sinDst.sin_addr, sport, dport, payload);
+    UdpStack udpStack(saddr, daddr, sport, dport, payload);
     UCharVector packet = udpStack.getPacket();
 
     if (packet.size() > NetworkEngine::MTU) {
@@ -206,16 +185,22 @@ void NetworkEngine::stopSniff() {
     }
 }
 
+const unsigned char *NetworkEngine::getMac() { return this->mac; }
+
+const struct in_addr *NetworkEngine::getIp() { return &(this->ip); }
+
 void NetworkEngine::getInterfaceInfo(const char *interfaceName) {
     struct ifreq ifr;
     int sd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ARP));
 
     if (sd <= 0) {
         close(sd);
+        return;
     }
 
     if (strlen(interfaceName) > (IFNAMSIZ - 1)) {
         close(sd);
+        return;
     }
 
     strcpy(ifr.ifr_name, interfaceName);
@@ -223,6 +208,7 @@ void NetworkEngine::getInterfaceInfo(const char *interfaceName) {
     // get interface index using name
     if (ioctl(sd, SIOCGIFINDEX, &ifr) == -1) {
         close(sd);
+        return;
     }
 
     this->ifindex = ifr.ifr_ifindex;
@@ -230,10 +216,23 @@ void NetworkEngine::getInterfaceInfo(const char *interfaceName) {
     // get MAC address of the interface
     if (ioctl(sd, SIOCGIFHWADDR, &ifr) == -1) {
         close(sd);
+        return;
     }
 
     // copy mac address to output
     memcpy(this->mac, ifr.ifr_hwaddr.sa_data, 6);
+
+    if (strlen(interfaceName) <= (IFNAMSIZ - 1)) {
+        if (ioctl(sd, SIOCGIFADDR, &ifr) == -1) {
+            close(sd);
+            return;
+        }
+
+        if (ifr.ifr_addr.sa_family == AF_INET) {
+            struct sockaddr_in *tmp = (struct sockaddr_in *)&ifr.ifr_addr;
+            memcpy(&this->ip, &tmp->sin_addr, sizeof(struct sockaddr_in));
+        }
+    }
 
     if (sd > 0) {
         close(sd);

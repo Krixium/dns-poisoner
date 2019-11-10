@@ -38,9 +38,6 @@ public:
              const unsigned char &tcpFlags, const UCharVector &payload);
 
     UCharVector getPacket();
-
-private:
-    void calcChecksum();
 };
 
 #endif
