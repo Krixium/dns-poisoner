@@ -42,8 +42,8 @@ int forgeDns(const dnshdr *dnsHeader, const struct in_addr *fakeAddr, unsigned c
     memcpy(output + size, "\x00\x00\x00\x22", 4);
     size += 4;
     // data length
-    memcpy(output + size, "\x00\x04", 4);
-    size += 4;
+    memcpy(output + size, "\x00\x04", 2);
+    size += 2;
     // data
     memcpy(output + size, fakeAddr, 4);
     size += 4;

