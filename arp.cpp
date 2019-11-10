@@ -31,6 +31,18 @@ void forgeArp(const unsigned char *atkMac, const struct in_addr *srcIp, const un
     memcpy(arpPkt->arp_dpa, &dstIp->s_addr, 4);
 }
 
+/*
+ * Creates an ARP request with the given values.
+ *
+ * Params:
+ *      const struct in_addr *query: The IP address that will be resolved to a MAC address.
+ *
+ *      const struct in_addr *ip: The sender IP address.
+ *
+ *      const unsigned char *mac: The sender MAC address.
+ *
+ *      struct arp_header *arpPkt: The ARP packet to fill.
+ */
 void craftArpRequest(const struct in_addr *query, const struct in_addr *ip,
                      const unsigned char *mac, struct arp_header *arpPkt) {
     arpPkt->arp_hd = htons(ARPHRD_ETHER);
