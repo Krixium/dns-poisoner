@@ -26,9 +26,6 @@ void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
 struct in_addr victimIp;  // get this from config file
 struct in_addr gatewayIp; // get this from config file
 
-// get the interface name, ip of gateway and ip of victim
-// main program we need: interface name, ip of gateway, ip of victim
-// dns poison we need: domain to poison, what to poison too
 int main(int argc, const char *argv[]) {
     // Read strings from config file
     std::unordered_map<std::string, std::string> properties = getConfig("poisoner.conf");
