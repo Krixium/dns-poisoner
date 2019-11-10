@@ -25,21 +25,25 @@ int main(int argc, const char *argv[]) {
     struct in_addr gatewayIp;
     unsigned char *victimIpChar = (unsigned char *)&victimIp;
     unsigned char *gatewayIpChar = (unsigned char *)&gatewayIp;
+    const char *tmp;
 
-    if (sscanf(properties["attackerMac"].c_str(), "%x:%x:%x:%x:%x:%x", &attackerMac[0],
+    tmp = properties["attackerMac"].c_str();
+    if (sscanf(tmp, "%x:%x:%x:%x:%x:%x", &attackerMac[0],
                &attackerMac[1], &attackerMac[2], &attackerMac[3], &attackerMac[4],
                &attackerMac[5]) != 6) {
         std::cerr << "could not parse attackerMac" << std::endl;
         return 0;
     }
 
-    if (sscanf(properties["victimIp"].c_str(), "%d.%d.%d.%d", &victimIpChar[0], &victimIpChar[1],
+    tmp = properties["victimIp"].c_str();
+    if (sscanf(tmp, "%hhu.%hhu.%hhu.%hhu", &victimIpChar[0], &victimIpChar[1],
                &victimIpChar[2], &victimIpChar[3]) != 4) {
         std::cerr << "could not parse victimIp" << std::endl;
         return 0;
     }
 
-    if (sscanf(properties["gatewayIp"].c_str(), "%d.%d.%d.%d", &gatewayIpChar[0], &gatewayIpChar[1],
+    tmp = properties["gatewayIp"].c_str();
+    if (sscanf(tmp, "%hhu.%hhu.%hhu.%hhu", &gatewayIpChar[0], &gatewayIpChar[1],
                &gatewayIpChar[2], &gatewayIpChar[3]) != 4) {
         std::cerr << "could not parse gatewayIp" << std::endl;
         return 0;
