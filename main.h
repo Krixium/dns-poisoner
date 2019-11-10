@@ -1,11 +1,17 @@
 #ifndef MAIN_H
 #define MAIN_H
 
+#include <unordered_map>
 #include <string.h>
 
 #include "NetworkEngine.h"
 #include "UdpStack.h"
 #include "checksum.h"
+
+struct DomainIpPair {
+    unsigned char name[255];
+    struct in_addr ip;
+};
 
 struct DnsSniffArgs {
     NetworkEngine *net;
@@ -13,6 +19,7 @@ struct DnsSniffArgs {
     struct in_addr *gatewayIP;
     int rawSocket;
     unsigned char buffer[1500];
+    std::unordered_map<unsigned char *, struct DomainIpPair> targets;
 };
 
 void dnsSpoof(struct DnsSniffArgs *args);
