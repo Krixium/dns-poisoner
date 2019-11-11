@@ -46,6 +46,22 @@ inline bool isSameQuestion(const unsigned char *a, const unsigned char *b) {
     return true;
 }
 
+/*
+ * Fills in the values of a IPv4/UDP structure with the given values.
+ *
+ * Params:
+ *      unsigned char *buffer: The buffer to hold the headers.
+ *
+ *      const unsigned int src: The source IP in network byte order.
+ *
+ *      const unsigned int dst: The destination IP in network byte order.
+ *
+ *      const unsigned sport: The source port in network byte order.
+ *
+ *      const unsigned dport: The destination port in network byte order.
+ *
+ *      const int payloadSize: The size of the payload to carry.
+ */
 inline void fillIpUdpHeader(unsigned char *buffer, const unsigned int src,
                             const unsigned int dst, const unsigned short sport,
                             const unsigned short dport, const int payloadSize) {

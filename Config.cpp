@@ -7,7 +7,18 @@
 
 using Properties = std::unordered_map<std::string, std::string>;
 
-int stringToDnsDomain(const std::string& src, unsigned char* output) {
+/*
+ * Converts URL strings to DNS URL format.
+ *
+ * Params:
+ *      const std::string& src: The URL string.
+ *
+ *      unsigned char *output: The output buffer.
+ *
+ * Returns:
+ *      The number of bytes written to the output buffer.
+ */
+void stringToDnsDomain(const std::string& src, unsigned char* output) {
     unsigned char blockHead = 0;
     unsigned char blockSize = 0;
     unsigned char outputBaseIndex = 0;
@@ -45,10 +56,18 @@ int stringToDnsDomain(const std::string& src, unsigned char* output) {
 
     // place last null byte
     output[outputBaseIndex] = 0;
-
-    return outputBaseIndex + 1;
 }
 
+/*
+ * Parses the configuration file for key value pairs separated by the char '='
+ *
+ * Params:
+ *      const std::string& config_filename: The name of the configuration file.
+ *
+ * Returns:
+ *      A unordered map of key value pairs corresponding to all the valid entries in the specified
+ *      configuration file.
+ */
 Properties getConfig(const std::string& config_filename) {
     std::ifstream file(config_filename);
     std::string line;
@@ -72,6 +91,16 @@ Properties getConfig(const std::string& config_filename) {
     return properties;
 }
 
+/*
+ * Converts key value pairs of domain name - ip to the DomainIpPair structure.
+ *
+ * Params:
+ *      const Properties& domainIpPairs: A list of domain name - ip key value pairs.
+ *
+ * Returns:
+ *      A list of DomainIpPair structures corresponding to all the valid key value pairs in the
+ *      input.
+ */
 std::vector<struct DomainIpPair> convertToVector(const Properties& domainIpPairs) {
     std::vector<struct DomainIpPair> result;
 

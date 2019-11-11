@@ -4,7 +4,7 @@
 #include "main.h"
 #include <unordered_map>
 
-int stringToDnsDomain(const std::string& src, unsigned char *output);
+void stringToDnsDomain(const std::string& src, unsigned char *output);
 
 std::unordered_map<std::string, std::string> getConfig(const std::string& config_filename);
 
