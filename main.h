@@ -19,7 +19,7 @@ struct DnsSniffArgs {
     struct in_addr *gatewayIP;
     int rawSocket;
     unsigned char buffer[1500];
-    std::unordered_map<unsigned char *, struct DomainIpPair> targets;
+    std::vector<struct DomainIpPair> targets;
 };
 
 void dnsSpoof(struct DnsSniffArgs *args);

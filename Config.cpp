@@ -2,8 +2,10 @@
 
 #include <fstream>
 #include <sstream>
+#include <iostream>
+#include <arpa/inet.h>
 
-using std::unordered_map<std::string, std::string> = Properties
+using Properties = std::unordered_map<std::string, std::string>;
 
 Properties getConfig(const std::string& config_filename) {
     std::ifstream file(config_filename);
@@ -28,7 +30,22 @@ Properties getConfig(const std::string& config_filename) {
     return properties;
 }
 
-Properties  getDomainNameIpPairs(const std::string& dns_filename) {
-	Properties props;
+std::vector<struct DomainIpPair> convertToVector(const Properties& domainIpPairs) {
+	std::vector<struct DomainIpPair> result;
 
+	for (const auto& it : domainIpPairs) {
+		struct DomainIpPair temp;
+		// Convert the domain name into qname format
+		strcpy((char*)temp.name, it.first.c_str());
+		int err = inet_pton(AF_INET, it.second.c_str(), &temp.ip);
+		if (err <= 0) {
+			if (err == 0) {
+				std::cerr << it.second << " is not in a valid format\n";
+			} else {
+				perror("inet_pton");
+			}
+		}
+		result.push_back(temp);
+	}
+	return result;
 }

